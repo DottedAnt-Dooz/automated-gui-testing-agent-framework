@@ -41,6 +41,8 @@ The helper must:
 - throw a clear error if the output is not JSON,
 - save command transcripts under `logs`.
 
+Prefer selector-based GUI interactions in generated scripts. `hotkey` is allowed for documented fallback paths, common commands that are not reliably exposed through UI Automation, or deliberate state recovery, but it should not replace normal visible GUI navigation when `click`, `select`, `wait-element`, `read`, `hover`, `drag`, or `type` can do the job.
+
 ## Step Results
 
 Each CSV row maps to one final step result object:
@@ -93,4 +95,3 @@ The same JSON must also be saved to `results\result.json`.
 ## Coordinate Fallbacks
 
 Coordinate clicks and drags are allowed only when selector-based automation is not reliable. The script must include a short comment and save a screenshot near the fallback action.
-

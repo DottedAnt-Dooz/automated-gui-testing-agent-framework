@@ -12,6 +12,7 @@ Use this when a coding agent such as Codex, Copilot, or Hermes is running in an 
 2. Provide a testcase CSV, for example `Microsoft Paint.csv`.
 3. Ask the agent to generate and validate a PowerShell GUI test script.
 4. The agent should follow `AGENTS.md` and `docs\GENERATED_SCRIPT_CONTRACT.md`.
+5. The agent must work in three stages: Planning, Exploration, and Development/Iteration.
 
 ### 2. API Workflow
 
@@ -41,6 +42,10 @@ For a no-network dry run:
 
 The OpenAI provider reads `OPENAI_API_KEY` from the environment and uses the Responses API with function tools. The tool loop is allowlisted: the model can read the testcase, run PoTATo commands, write a generated script, run that script when `-Execute` is set, read run artifacts, and finalize.
 
+The API workflow exposes a `set_authoring_stage` tool. The model must enter `planning`, then `exploration`, then `development_iteration`. PoTATo exploration commands are blocked until the exploration stage is active, and generated-script writing/running is blocked until development/iteration is active.
+
+For both workflows, agents should prefer real GUI operations over keyboard shortcuts. Hotkeys are allowed as fallbacks or state-management commands, but selector-based clicks, reads, waits, drags, and typing are preferred because the evaluation focuses on GUI testing.
+
 OpenAI API references:
 
 - [Responses API](https://developers.openai.com/api/reference/responses/overview/)
@@ -55,7 +60,6 @@ OpenAI API references:
 - `docs\GENERATED_SCRIPT_CONTRACT.md` - required generated script format.
 - `prompts\SESSION_AGENT_PROMPT.md` - prompt for robust coding agents.
 - `examples\MicrosoftPaint.Reference.ps1` - reference output script style.
-- `tests\Framework.Tests.ps1` - Pester 3-compatible tests.
 - `runs\` - generated runtime artifacts, ignored by git.
 
 ## Required CSV Columns
@@ -73,12 +77,6 @@ Optional columns are accepted and preserved when present:
 
 ## Common Commands
 
-Run tests:
-
-```powershell
-Invoke-Pester -Script .\tests -EnableExit:$false
-```
-
 Create a run folder:
 
 ```powershell
@@ -91,6 +89,15 @@ Invoke PoTATo safely:
 ```powershell
 Invoke-AGTAPotatoJson -PotatoCliPath "..\potato_cli\potato.ps1" -Command "state" -RunRoot ".\runs\manual"
 ```
+
+Build the analysis dashboard:
+
+```powershell
+cd ..\automated-gui-testing-agent-analysis
+.\Invoke-BuildAnalysisDashboard.ps1 -RunsRoot "..\automated-gui-testing-agent-framework\runs" -Open
+```
+
+See `..\automated-gui-testing-agent-analysis\README.md` for metric files, cost-estimate configuration, and dashboard details.
 
 ## Environment Assumptions
 
