@@ -462,7 +462,7 @@ Use only the provided tools for filesystem access, PoTATo CLI execution, and scr
 You must split the work into exactly these stages and call set_authoring_stage before doing the work for each stage:
 1. planning: read the testcase, map rows to likely GUI actions, identify unknown selectors/dialogs, and decide what evidence is needed.
 2. exploration: use PoTATo commands to navigate the real UI and learn the actual windows, controls, selectors, timing, modal behavior, and verification points.
-3. development_iteration: write the generated script, run it when execution is enabled, inspect failures, and fix concrete defects.
+3. development_iteration: write the generated script, run it when execution is enabled, inspect failures, fix concrete defects, and optimize for speed and robustness.
 Do not call run_potato until the exploration stage is active.
 Do not write or run the generated script until the development_iteration stage is active.
 The generated script must accept -PotatoCliPath, -TestCaseCsv, and -RunRoot.
@@ -471,6 +471,8 @@ Each CSV row maps to one final step result with stepIndex, action, expectedResul
 The final generated script must write exactly one JSON object to stdout and save it to results\result.json.
 Coordinate clicks are allowed only as documented fallbacks with screenshots.
 Prefer visible GUI operations over hotkeys. Use hotkey only when selector-based GUI interaction is unreliable, unavailable through UI Automation, or needed for deliberate state recovery.
+Generated scripts must clean up before exit even when the testcase does not request it: close apps/windows opened by the script and delete fixed-path or external files/state that could affect a rerun. Preserve evidence under RunRoot and record cleanup actions in the final JSON.
+After the generated script works, optimize it: replace arbitrary sleeps with specific waits, tighten selectors, remove unused exploratory commands, keep evidence capture intentional, and handle expected dialogs/modals deterministically.
 Do not import old PoTATo testcases or legacy subsystems.
 '@
 }
@@ -493,9 +495,13 @@ First inspect the environment with PoTATo commands as needed. Then write the gen
 Required stage sequence:
 1. Call set_authoring_stage with stage "planning", then read the testcase and produce a plan.
 2. Call set_authoring_stage with stage "exploration", then use PoTATo to explore and manually perform the required GUI actions.
-3. Call set_authoring_stage with stage "development_iteration", then write and validate the generated script.
+3. Call set_authoring_stage with stage "development_iteration", then write, validate, fix, and optimize the generated script.
 
 Avoid hotkeys when a visible GUI interaction is practical. The goal is GUI testing, so prefer selectors, clicks, waits, reads, drags, hovers, and typing through visible UI controls.
+
+The generated script must include end-of-run cleanup. It should close applications/windows it opened, delete fixed-path or external files/state it created that could affect a future run, preserve intentional evidence under the run folder, and record cleanup actions/errors in the final JSON.
+
+During development_iteration, perform an optimization pass after correctness: prefer explicit waits over sleeps, tighten selectors, remove unused exploratory commands, keep evidence capture intentional, and make dialog handling deterministic.
 "@
 }
 
@@ -896,7 +902,7 @@ function Invoke-AGTAMockAuthoring {
     [void](Set-AGTAAuthoringStage -Context $Context -Stage 'exploration' -Summary 'Mock provider does not perform live UI exploration.' -Details @(
         'This dry-run path records the stage boundary without touching the desktop.'
     ))
-    [void](Set-AGTAAuthoringStage -Context $Context -Stage 'development_iteration' -Summary 'Mock provider writes the reference script and optionally executes it.')
+    [void](Set-AGTAAuthoringStage -Context $Context -Stage 'development_iteration' -Summary 'Mock provider writes the reference script and uses the reference script optimization pattern.')
     $toolResult = Invoke-AGTAAgentTool -Name 'write_generated_script' -Arguments ([pscustomobject]@{
         relativePath = 'MicrosoftPaint.Generated.ps1'
         content = $scriptText

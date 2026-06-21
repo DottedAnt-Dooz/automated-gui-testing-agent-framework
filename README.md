@@ -46,6 +46,10 @@ The API workflow exposes a `set_authoring_stage` tool. The model must enter `pla
 
 For both workflows, agents should prefer real GUI operations over keyboard shortcuts. Hotkeys are allowed as fallbacks or state-management commands, but selector-based clicks, reads, waits, drags, and typing are preferred because the evaluation focuses on GUI testing.
 
+Generated scripts must also clean up after themselves before exiting. They should preserve run-folder evidence, but close any applications they opened and delete fixed-path or external files/state they created that could make a later run fail or take a different path.
+
+The Development/Iteration stage includes optimization after the script is functionally correct. Agents should make scripts faster and more robust by using explicit waits, stronger selectors, fewer redundant exploratory commands, intentional evidence capture, and deterministic dialog handling.
+
 OpenAI API references:
 
 - [Responses API](https://developers.openai.com/api/reference/responses/overview/)

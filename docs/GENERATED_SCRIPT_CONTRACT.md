@@ -26,6 +26,8 @@ The script must create these directories under `RunRoot` if they do not exist:
 
 All screenshots, created files, JSON results, and command transcripts belong under `RunRoot`.
 
+Files created only as evidence should stay under `RunRoot`. Files or application state created outside `RunRoot`, especially fixed-path outputs such as documents on the desktop or in temp folders, must be removed during cleanup unless the testcase explicitly requires them to remain.
+
 ## PoTATo Invocation
 
 The script must call `potato_cli\potato.ps1` through a local helper equivalent to:
@@ -42,6 +44,10 @@ The helper must:
 - save command transcripts under `logs`.
 
 Prefer selector-based GUI interactions in generated scripts. `hotkey` is allowed for documented fallback paths, common commands that are not reliably exposed through UI Automation, or deliberate state recovery, but it should not replace normal visible GUI navigation when `click`, `select`, `wait-element`, `read`, `hover`, `drag`, or `type` can do the job.
+
+Generated scripts should be optimized after they are functionally correct. Use specific waits instead of arbitrary sleeps, keep selectors as narrow as the application allows, avoid redundant `observe` or screenshot calls that are not used for evidence/debugging, and make expected dialogs/modals explicit instead of relying on timing.
+
+Optimization must not remove required evidence or make failures harder to diagnose.
 
 ## Step Results
 
@@ -85,12 +91,28 @@ The script must write exactly one JSON object to stdout:
   },
   "artifacts": {
     "resultPath": "C:\\...\\results\\result.json",
-    "evidenceRoot": "C:\\...\\evidence"
-  }
+    "evidenceRoot": "C:\\...\\evidence",
+    "cleanup": []
+  },
+  "cleanup": []
 }
 ```
 
 The same JSON must also be saved to `results\result.json`.
+
+## Cleanup
+
+Generated scripts must perform cleanup at the end of every run, even if the testcase does not explicitly include cleanup steps.
+
+Cleanup must:
+
+- close applications or windows opened by the script,
+- delete fixed-path or external files created during the run that could affect the next execution,
+- remove temporary state that would make a rerun take a different UI path,
+- preserve evidence, screenshots, transcripts, and result JSON under `RunRoot`,
+- record cleanup actions and cleanup errors in the final JSON.
+
+Cleanup should run after step execution regardless of pass/fail outcome. If cleanup itself fails, record the error in the final JSON rather than hiding it.
 
 ## Coordinate Fallbacks
 

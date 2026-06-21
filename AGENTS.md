@@ -25,8 +25,11 @@ Split the work into three explicit stages. Do not jump directly from reading the
 1. Generate a PowerShell script that follows the generated-script contract.
 2. Run the generated script once unless the user explicitly asks for generation only.
 3. Fix concrete script or CLI usage defects found during execution.
-4. Save results and evidence under the run folder.
-5. Report the generated script path, result JSON path, screenshots/evidence, and any failing PoTATo JSON outputs.
+4. Optimize the script after it works: replace fixed sleeps with specific waits, remove redundant `observe`/screenshot calls that are not used as evidence, tighten selectors, prefer deterministic checks over broad reads, and reduce coordinate/hotkey fallbacks where reliable GUI selectors exist.
+5. Make robustness improvements: handle expected dialogs/modals, preserve useful error context, keep cleanup idempotent, and avoid assumptions that only hold for the first run.
+6. Add cleanup that runs at the end even when a step fails: close applications/windows opened by the script and remove fixed-path or external files/state created during the run that could affect the next execution.
+7. Save results and evidence under the run folder.
+8. Report the generated script path, result JSON path, screenshots/evidence, cleanup actions, optimization notes, and any failing PoTATo JSON outputs.
 
 ## Allowed Automation Surface
 
@@ -45,6 +48,8 @@ Do not import old PoTATo testcases, image recognition, Selenium, browser-specifi
 - Step results must include `stepIndex`, `action`, `expectedResult`, `status`, `evidence`, `commands`, and `error`.
 - Coordinate clicks are fallback only. If used, add a short comment and save a screenshot.
 - Hotkeys are fallback or state-management tools, not the default interaction style. Prefer selector-based GUI actions whenever possible.
+- Generated scripts must clean up after themselves before exiting. Preserve evidence under `RunRoot`, but close opened apps and delete files outside the run folder or fixed-path files that would make a later run non-repeatable.
+- Generated scripts should be optimized for repeatable speed and robustness: use explicit waits instead of arbitrary sleeps, keep selectors specific, avoid unnecessary command noise, and retain enough evidence to debug failures.
 - Scripts must be repeatable after a clean VM checkpoint restore.
 
 ## Reporting Shape
@@ -59,3 +64,5 @@ Use `PASS`, `FAIL`, or `SKIPPED` for step status. The final script JSON must inc
 - `steps`
 - `summary`
 - `artifacts`
+
+The final JSON should also include cleanup information, either as a top-level `cleanup` field or under `artifacts.cleanup`, so rerun safety can be reviewed.
