@@ -1,0 +1,6 @@
+Action,Data,Expected Result
+Open Paint,,Paint opened
+Create a test file in paint by drawing some colorful lines,,Saed test file exists
+Open another test file,,test file opened
+print test file as PDF,,PDF file exists
+Close Paint,,Paint closed
