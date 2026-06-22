@@ -1,6 +1,6 @@
 # Agent Instructions
 
-This folder contains the Automated GUI Testing Agent Framework. Your job is to convert testcase CSV files into repeatable PowerShell GUI test scripts that use `potato_cli`.
+This folder contains the Automated GUI Testing Agent Framework. Your job is to convert testcase CSV files into repeatable PowerShell GUI test scripts that use `potato-cli`.
 
 ## Required Workflow
 
@@ -15,7 +15,7 @@ Split the work into three explicit stages. Do not jump directly from reading the
 
 ### 2. Exploration
 
-1. Explore the interactive Windows desktop using `..\potato_cli\potato.ps1` commands only.
+1. Explore the interactive Windows desktop using `..\potato-cli\potato.ps1` commands only.
 2. Perform the required actions manually through the CLI to learn the real UI shape: windows, dialogs, selectors, control names, timing, and failure modes.
 3. Capture screenshots or `observe` output when a selector, modal, or fallback decision matters.
 4. Prefer GUI operations such as `click`, `select`, `hover`, `drag`, and `type`. Avoid hotkeys when a visible GUI route is practical, because these tests are intended to evaluate GUI automation. Use `hotkey` only for documented fallbacks, common application commands that are not reliably exposed through UI Automation, or recovery from a known state.
@@ -34,7 +34,7 @@ Split the work into three explicit stages. Do not jump directly from reading the
 
 ## Allowed Automation Surface
 
-Use only `potato_cli` commands for GUI operations:
+Use only `potato-cli` commands for GUI operations:
 
 `start`, `focus`, `windows`, `observe`, `select`, `click`, `click-coordinate`, `type`, `hotkey`, `drag`, `hover`, `wait-element`, `wait-file`, `read`, `screenshot`, `close-window`, `report`, `state`.
 
