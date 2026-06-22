@@ -41,13 +41,19 @@ The helper must:
 - run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <potato.ps1>`,
 - parse the single JSON result,
 - throw a clear error if the output is not JSON,
-- save command transcripts under `logs`.
+- save full command transcripts under an execution-specific file in `logs`, for example `potato-commands-<executionId>.jsonl`.
+
+Each generated script run must create an `executionId` and a dedicated `commandLogPath`. Do not append every validation pass to one shared `potato-commands.jsonl`; repeated executions must be separable for analysis.
+
+The final result JSON should keep command entries compact. A step `commands` item should contain fields like `index`, `command`, `arguments`, `ok`, `durationMs`, `logPath`, and `error`, not the full raw PoTATo response or full UI tree. The full parsed response belongs in the JSONL command log.
 
 Prefer selector-based GUI interactions in generated scripts. `hotkey` is allowed for documented fallback paths, common commands that are not reliably exposed through UI Automation, or deliberate state recovery, but it should not replace normal visible GUI navigation when `click`, `select`, `wait-element`, `read`, `hover`, `drag`, or `type` can do the job.
 
 Generated scripts should be optimized after they are functionally correct. Use specific waits instead of arbitrary sleeps, keep selectors as narrow as the application allows, avoid redundant `observe` or screenshot calls that are not used for evidence/debugging, and make expected dialogs/modals explicit instead of relying on timing.
 
 Optimization must not remove required evidence or make failures harder to diagnose.
+
+For cleanup and recovery flows, avoid probing several nonexistent dialog buttons with long timeouts. First check whether a process/window or blocking dialog is actually present. If a prompt is possible but not expected, use short bounded checks and do not record expected misses as failures.
 
 ## Step Results
 
@@ -92,8 +98,10 @@ The script must write exactly one JSON object to stdout:
   "artifacts": {
     "resultPath": "C:\\...\\results\\result.json",
     "evidenceRoot": "C:\\...\\evidence",
+    "commandLogPath": "C:\\...\\logs\\potato-commands-20260622_101500.jsonl",
     "cleanup": []
   },
+  "executionId": "20260622_101500",
   "cleanup": []
 }
 ```
@@ -113,6 +121,8 @@ Cleanup must:
 - record cleanup actions and cleanup errors in the final JSON.
 
 Cleanup should run after step execution regardless of pass/fail outcome. If cleanup itself fails, record the error in the final JSON rather than hiding it.
+
+Development/iteration should normally run the generated script once after each behavioral automation change. If a later edit only changes result formatting or reporting, prefer a static parse check and targeted validation instead of another full GUI rerun.
 
 ## Coordinate Fallbacks
 

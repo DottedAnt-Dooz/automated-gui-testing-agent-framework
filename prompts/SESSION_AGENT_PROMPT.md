@@ -23,4 +23,6 @@ Generated scripts must clean up after themselves at the end even when the testca
 
 After the script is functionally correct, perform an optimization pass. Prefer explicit `wait-element` or `wait-file` conditions over arbitrary sleeps, tighten selectors, remove unused exploratory commands, keep evidence capture intentional, and make known dialog handling deterministic.
 
-The generated script must write exactly one JSON result object to stdout and save the same object to `results\result.json`.
+The generated script must write exactly one compact JSON result object to stdout and save the same object to `results\result.json`. Full PoTATo responses must go to an execution-specific command log, not into step `commands`.
+
+Use a full GUI rerun after automation behavior changes. If a successful run only needs cosmetic reporting cleanup, prefer parse/static checks or targeted validation instead of another full rerun.

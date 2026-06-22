@@ -473,6 +473,8 @@ Coordinate clicks are allowed only as documented fallbacks with screenshots.
 Prefer visible GUI operations over hotkeys. Use hotkey only when selector-based GUI interaction is unreliable, unavailable through UI Automation, or needed for deliberate state recovery.
 Generated scripts must clean up before exit even when the testcase does not request it: close apps/windows opened by the script and delete fixed-path or external files/state that could affect a rerun. Preserve evidence under RunRoot and record cleanup actions in the final JSON.
 After the generated script works, optimize it: replace arbitrary sleeps with specific waits, tighten selectors, remove unused exploratory commands, keep evidence capture intentional, and handle expected dialogs/modals deterministically.
+Generated scripts must create an executionId, write full PoTATo transcripts to logs\potato-commands-<executionId>.jsonl, and keep stdout/result.json compact. Step command entries should be summaries, not full raw PoTATo responses or UI trees.
+Do not rerun a full GUI script only to polish cosmetic reporting after a successful behavioral validation; use full reruns for behavior changes and static checks for formatting-only changes when safe.
 Do not import old PoTATo testcases or legacy subsystems.
 '@
 }
@@ -502,6 +504,8 @@ Avoid hotkeys when a visible GUI interaction is practical. The goal is GUI testi
 The generated script must include end-of-run cleanup. It should close applications/windows it opened, delete fixed-path or external files/state it created that could affect a future run, preserve intentional evidence under the run folder, and record cleanup actions/errors in the final JSON.
 
 During development_iteration, perform an optimization pass after correctness: prefer explicit waits over sleeps, tighten selectors, remove unused exploratory commands, keep evidence capture intentional, and make dialog handling deterministic.
+
+Keep generated-script output compact: write full PoTATo responses to a per-execution JSONL command log and include only command summaries in step results. Do not return huge UI trees in stdout.
 "@
 }
 

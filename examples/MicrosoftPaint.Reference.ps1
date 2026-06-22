@@ -6,10 +6,12 @@ param(
 )
 
 $startedAt = Get-Date
+$executionId = Get-Date -Format 'yyyyMMdd_HHmmss_ffff'
 $testCaseName = Split-Path -Leaf $TestCaseCsv
 $evidenceRoot = Join-Path -Path $RunRoot -ChildPath 'evidence'
 $logsRoot = Join-Path -Path $RunRoot -ChildPath 'logs'
 $resultsRoot = Join-Path -Path $RunRoot -ChildPath 'results'
+$commandLogPath = Join-Path -Path $logsRoot -ChildPath ("potato-commands-$executionId.jsonl")
 foreach ($path in @($RunRoot, $evidenceRoot, $logsRoot, $resultsRoot)) {
     if (-not (Test-Path -LiteralPath $path)) {
         New-Item -Path $path -ItemType Directory -Force | Out-Null
@@ -18,6 +20,7 @@ foreach ($path in @($RunRoot, $evidenceRoot, $logsRoot, $resultsRoot)) {
 
 $script:OpenedProcessNames = @()
 $script:CreatedExternalPaths = @()
+$script:CommandIndex = 0
 
 function ConvertFrom-PotatoOutput {
     param(
@@ -43,15 +46,55 @@ function Invoke-PotatoJson {
 
     $raw = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PotatoCliPath $Command @Arguments
     $parsed = ConvertFrom-PotatoOutput -RawOutput ([string]$raw)
+    $script:CommandIndex++
     $record = [ordered]@{
+        index = $script:CommandIndex
         timestamp = (Get-Date).ToString('o')
         command = $Command
         arguments = $Arguments
         raw = [string]$raw
         parsed = $parsed
     }
-    $record | ConvertTo-Json -Depth 40 -Compress | Add-Content -LiteralPath (Join-Path $logsRoot 'potato-commands.jsonl') -Encoding UTF8
+    $record | ConvertTo-Json -Depth 60 -Compress | Add-Content -LiteralPath $commandLogPath -Encoding UTF8
     return $parsed
+}
+
+function New-CommandSummary {
+    param(
+        [Parameter(Mandatory)]
+        [string] $Command,
+
+        [string[]] $Arguments = @(),
+
+        [Parameter(Mandatory)]
+        [object] $Result
+    )
+
+    [pscustomobject][ordered]@{
+        index = $script:CommandIndex
+        command = $Command
+        arguments = @($Arguments)
+        ok = [bool]$Result.ok
+        durationMs = [int]$Result.durationMs
+        logPath = $commandLogPath
+        error = $(if ($Result.error) { $Result.error.message } else { $null })
+    }
+}
+
+function Invoke-StepCommand {
+    param(
+        [Parameter(Mandatory)]
+        [ref] $Commands,
+
+        [Parameter(Mandatory)]
+        [string] $Command,
+
+        [string[]] $Arguments = @()
+    )
+
+    $result = Invoke-PotatoJson -Command $Command -Arguments $Arguments
+    $Commands.Value = @($Commands.Value) + (New-CommandSummary -Command $Command -Arguments $Arguments -Result $result)
+    return $result
 }
 
 function Register-OpenedProcess {
@@ -202,13 +245,16 @@ function New-StepResult {
 
 function Invoke-ClickAny {
     param(
+        [Parameter(Mandatory)]
+        [ref] $Commands,
+
         [string[]] $Names,
         [string] $ControlType = 'Button',
         [int] $TimeoutMs = 5000
     )
 
     foreach ($name in $Names) {
-        $result = Invoke-PotatoJson -Command 'click' -Arguments @('-Name', $name, '-ControlType', $ControlType, '-FindFirst', '-TimeoutMs', "$TimeoutMs")
+        $result = Invoke-StepCommand -Commands $Commands -Command 'click' -Arguments @('-Name', $name, '-ControlType', $ControlType, '-FindFirst', '-TimeoutMs', "$TimeoutMs")
         if ($result.ok -and $result.data.clicked) {
             return $result
         }
@@ -227,11 +273,11 @@ Register-CreatedExternalPath -Path $printedPdf
 try {
     try {
         $commands = @()
-        $commands += Invoke-PotatoJson -Command 'state' -Arguments @('-Clear')
-        $commands += Invoke-PotatoJson -Command 'start' -Arguments @('-ProcessName', 'mspaint.exe', '-WaitForWindowMs', '30000')
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'state' -Arguments @('-Clear') | Out-Null
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'start' -Arguments @('-ProcessName', 'mspaint.exe', '-WaitForWindowMs', '30000') | Out-Null
         Register-OpenedProcess -ProcessName 'mspaint'
-        $commands += Invoke-PotatoJson -Command 'observe' -Arguments @('-Depth', '2', '-MaxElements', '200')
-        $shot = Invoke-PotatoJson -Command 'screenshot'
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'observe' -Arguments @('-Depth', '2', '-MaxElements', '200') | Out-Null
+        $shot = Invoke-StepCommand -Commands ([ref]$commands) -Command 'screenshot'
         $results += New-StepResult -StepIndex 1 -Action $steps[0].Action -ExpectedResult $steps[0].'Expected Result' -Status 'PASS' -Evidence @($shot.data.path) -Commands $commands
     }
     catch {
@@ -241,17 +287,17 @@ try {
     try {
         $commands = @()
         # Coordinate fallback: current Paint canvas is not consistently exposed with stable selectors across Windows builds.
-        $commands += Invoke-PotatoJson -Command 'screenshot'
-        $commands += Invoke-PotatoJson -Command 'drag' -Arguments @('-StartX', '330', '-StartY', '280', '-EndX', '760', '-EndY', '430', '-Smooth')
-        $commands += Invoke-PotatoJson -Command 'drag' -Arguments @('-StartX', '350', '-StartY', '440', '-EndX', '820', '-EndY', '300', '-Smooth')
-        $commands += Invoke-PotatoJson -Command 'hotkey' -Arguments @('-Keys', '^s', '-Focus')
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'screenshot' | Out-Null
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'drag' -Arguments @('-StartX', '330', '-StartY', '280', '-EndX', '760', '-EndY', '430', '-Smooth') | Out-Null
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'drag' -Arguments @('-StartX', '350', '-StartY', '440', '-EndX', '820', '-EndY', '300', '-Smooth') | Out-Null
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'hotkey' -Arguments @('-Keys', '^s', '-Focus') | Out-Null
         Start-Sleep -Milliseconds 700
-        $commands += Invoke-PotatoJson -Command 'hotkey' -Arguments @('-Keys', '^a', '-Focus')
-        $commands += Invoke-PotatoJson -Command 'type' -Arguments @('-Text', $createdImage, '-Focus')
-        $commands += Invoke-ClickAny -Names @('Save', 'Speichern') -ControlType 'Button'
-        $wait = Invoke-PotatoJson -Command 'wait-file' -Arguments @('-Path', $createdImage, '-TimeoutMs', '10000')
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'hotkey' -Arguments @('-Keys', '^a', '-Focus') | Out-Null
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'type' -Arguments @('-Text', $createdImage, '-Focus') | Out-Null
+        Invoke-ClickAny -Commands ([ref]$commands) -Names @('Save', 'Speichern') -ControlType 'Button' | Out-Null
+        $wait = Invoke-StepCommand -Commands ([ref]$commands) -Command 'wait-file' -Arguments @('-Path', $createdImage, '-TimeoutMs', '10000')
         $status = if ($wait.data.conditionMet) { 'PASS' } else { 'FAIL' }
-        $results += New-StepResult -StepIndex 2 -Action $steps[1].Action -ExpectedResult $steps[1].'Expected Result' -Status $status -Evidence @($createdImage) -Commands ($commands + $wait)
+        $results += New-StepResult -StepIndex 2 -Action $steps[1].Action -ExpectedResult $steps[1].'Expected Result' -Status $status -Evidence @($createdImage) -Commands $commands
     }
     catch {
         $results += New-StepResult -StepIndex 2 -Action $steps[1].Action -ExpectedResult $steps[1].'Expected Result' -Status 'FAIL' -Evidence @($createdImage) -ErrorObject $_.Exception.Message
@@ -259,12 +305,12 @@ try {
 
     try {
         $commands = @()
-        $commands += Invoke-PotatoJson -Command 'hotkey' -Arguments @('-Keys', '^o', '-Focus')
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'hotkey' -Arguments @('-Keys', '^o', '-Focus') | Out-Null
         Start-Sleep -Milliseconds 700
-        $commands += Invoke-PotatoJson -Command 'hotkey' -Arguments @('-Keys', '^a', '-Focus')
-        $commands += Invoke-PotatoJson -Command 'type' -Arguments @('-Text', $createdImage, '-Focus')
-        $commands += Invoke-ClickAny -Names @('Open', 'Oeffnen') -ControlType 'Button'
-        $shot = Invoke-PotatoJson -Command 'screenshot'
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'hotkey' -Arguments @('-Keys', '^a', '-Focus') | Out-Null
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'type' -Arguments @('-Text', $createdImage, '-Focus') | Out-Null
+        Invoke-ClickAny -Commands ([ref]$commands) -Names @('Open', 'Oeffnen') -ControlType 'Button' | Out-Null
+        $shot = Invoke-StepCommand -Commands ([ref]$commands) -Command 'screenshot'
         $results += New-StepResult -StepIndex 3 -Action $steps[2].Action -ExpectedResult $steps[2].'Expected Result' -Status 'PASS' -Evidence @($shot.data.path) -Commands $commands
     }
     catch {
@@ -273,18 +319,18 @@ try {
 
     try {
         $commands = @()
-        $commands += Invoke-PotatoJson -Command 'hotkey' -Arguments @('-Keys', '^p', '-Focus')
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'hotkey' -Arguments @('-Keys', '^p', '-Focus') | Out-Null
         Start-Sleep -Milliseconds 1000
-        $commands += Invoke-PotatoJson -Command 'observe' -Arguments @('-Depth', '2', '-MaxElements', '250')
-        $commands += Invoke-PotatoJson -Command 'click' -Arguments @('-Name', 'Microsoft Print to PDF', '-FindFirst', '-TimeoutMs', '3000')
-        $commands += Invoke-ClickAny -Names @('Print', 'Drucken') -ControlType 'Button'
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'observe' -Arguments @('-Depth', '2', '-MaxElements', '250') | Out-Null
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'click' -Arguments @('-Name', 'Microsoft Print to PDF', '-FindFirst', '-TimeoutMs', '3000') | Out-Null
+        Invoke-ClickAny -Commands ([ref]$commands) -Names @('Print', 'Drucken') -ControlType 'Button' | Out-Null
         Start-Sleep -Milliseconds 1000
-        $commands += Invoke-PotatoJson -Command 'hotkey' -Arguments @('-Keys', '^a', '-Focus')
-        $commands += Invoke-PotatoJson -Command 'type' -Arguments @('-Text', $printedPdf, '-Focus')
-        $commands += Invoke-ClickAny -Names @('Save', 'Speichern') -ControlType 'Button'
-        $wait = Invoke-PotatoJson -Command 'wait-file' -Arguments @('-Path', $printedPdf, '-TimeoutMs', '15000')
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'hotkey' -Arguments @('-Keys', '^a', '-Focus') | Out-Null
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'type' -Arguments @('-Text', $printedPdf, '-Focus') | Out-Null
+        Invoke-ClickAny -Commands ([ref]$commands) -Names @('Save', 'Speichern') -ControlType 'Button' | Out-Null
+        $wait = Invoke-StepCommand -Commands ([ref]$commands) -Command 'wait-file' -Arguments @('-Path', $printedPdf, '-TimeoutMs', '15000')
         $status = if ($wait.data.conditionMet) { 'PASS' } else { 'FAIL' }
-        $results += New-StepResult -StepIndex 4 -Action $steps[3].Action -ExpectedResult $steps[3].'Expected Result' -Status $status -Evidence @($printedPdf) -Commands ($commands + $wait)
+        $results += New-StepResult -StepIndex 4 -Action $steps[3].Action -ExpectedResult $steps[3].'Expected Result' -Status $status -Evidence @($printedPdf) -Commands $commands
     }
     catch {
         $results += New-StepResult -StepIndex 4 -Action $steps[3].Action -ExpectedResult $steps[3].'Expected Result' -Status 'FAIL' -Evidence @($printedPdf) -ErrorObject $_.Exception.Message
@@ -292,7 +338,7 @@ try {
 
     try {
         $commands = @()
-        $commands += Invoke-PotatoJson -Command 'close-window' -Arguments @('-ProcessName', 'mspaint')
+        Invoke-StepCommand -Commands ([ref]$commands) -Command 'close-window' -Arguments @('-ProcessName', 'mspaint') | Out-Null
         $results += New-StepResult -StepIndex 5 -Action $steps[4].Action -ExpectedResult $steps[4].'Expected Result' -Status 'PASS' -Commands $commands
     }
     catch {
@@ -314,6 +360,7 @@ $final = [ordered]@{
     ok = ($summary.failed -eq 0)
     testCase = $testCaseName
     runRoot = $RunRoot
+    executionId = $executionId
     startedAt = $startedAt.ToString('o')
     finishedAt = $finishedAt.ToString('o')
     steps = $results
@@ -321,6 +368,7 @@ $final = [ordered]@{
     artifacts = [ordered]@{
         resultPath = Join-Path -Path $resultsRoot -ChildPath 'result.json'
         evidenceRoot = $evidenceRoot
+        commandLogPath = $commandLogPath
         cleanup = $cleanup
     }
     cleanup = $cleanup

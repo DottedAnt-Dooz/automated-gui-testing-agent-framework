@@ -28,7 +28,7 @@ Split the work into three explicit stages. Do not jump directly from reading the
 4. Optimize the script after it works: replace fixed sleeps with specific waits, remove redundant `observe`/screenshot calls that are not used as evidence, tighten selectors, prefer deterministic checks over broad reads, and reduce coordinate/hotkey fallbacks where reliable GUI selectors exist.
 5. Make robustness improvements: handle expected dialogs/modals, preserve useful error context, keep cleanup idempotent, and avoid assumptions that only hold for the first run.
 6. Add cleanup that runs at the end even when a step fails: close applications/windows opened by the script and remove fixed-path or external files/state created during the run that could affect the next execution.
-7. Save results and evidence under the run folder.
+7. Save results and evidence under the run folder using compact result JSON and full transcripts in execution-specific log files.
 8. Report the generated script path, result JSON path, screenshots/evidence, cleanup actions, optimization notes, and any failing PoTATo JSON outputs.
 
 ## Allowed Automation Surface
@@ -50,6 +50,8 @@ Do not import old PoTATo testcases, image recognition, Selenium, browser-specifi
 - Hotkeys are fallback or state-management tools, not the default interaction style. Prefer selector-based GUI actions whenever possible.
 - Generated scripts must clean up after themselves before exiting. Preserve evidence under `RunRoot`, but close opened apps and delete files outside the run folder or fixed-path files that would make a later run non-repeatable.
 - Generated scripts should be optimized for repeatable speed and robustness: use explicit waits instead of arbitrary sleeps, keep selectors specific, avoid unnecessary command noise, and retain enough evidence to debug failures.
+- Generated scripts must create an `executionId`, write full command transcripts to `logs\potato-commands-<executionId>.jsonl`, and keep step `commands` entries compact. Do not embed full UI trees or full PoTATo responses in `result.json` or stdout.
+- Do not rerun the full GUI script just to polish reporting after a successful behavioral run. Use a full rerun after automation behavior changes; use parse/static checks for cosmetic result formatting changes when safe.
 - Scripts must be repeatable after a clean VM checkpoint restore.
 
 ## Reporting Shape

@@ -50,6 +50,8 @@ Generated scripts must also clean up after themselves before exiting. They shoul
 
 The Development/Iteration stage includes optimization after the script is functionally correct. Agents should make scripts faster and more robust by using explicit waits, stronger selectors, fewer redundant exploratory commands, intentional evidence capture, and deterministic dialog handling.
 
+Generated scripts should keep final JSON small. Full PoTATo responses belong in execution-specific command logs under `logs\`; the final result should contain compact command summaries and a `commandLogPath`. This keeps Codex/API contexts and dashboards from being dominated by large UI trees.
+
 OpenAI API references:
 
 - [Responses API](https://developers.openai.com/api/reference/responses/overview/)
