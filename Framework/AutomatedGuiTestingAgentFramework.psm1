@@ -465,15 +465,15 @@ You must split the work into exactly these stages and call set_authoring_stage b
 3. development_iteration: write the generated script, run it when execution is enabled, inspect failures, fix concrete defects, and optimize for speed and robustness.
 Do not call run_potato until the exploration stage is active.
 Do not write or run the generated script until the development_iteration stage is active.
-The generated script must accept -PotatoCliPath, -TestCaseCsv, and -RunRoot.
-The generated script must call potato_cli through a helper that parses one JSON object per command.
+The generated script must accept -PotatoCliPath, -TestCaseCsv, and -RunRoot. It should also accept optional -FrameworkRoot.
+The generated script must dot-source Framework\GeneratedScriptRuntime.ps1, call Initialize-AGTAGeneratedTest, and use the runtime helpers for PoTATo invocation, compact command summaries, evidence handling, cleanup, step results, and final JSON writing. Do not copy this universal helper layer into the generated script.
 Each CSV row maps to one final step result with stepIndex, action, expectedResult, status, evidence, commands, and error.
 The final generated script must write exactly one JSON object to stdout and save it to results\result.json.
 Coordinate clicks are allowed only as documented fallbacks with screenshots.
 Prefer visible GUI operations over hotkeys. Use hotkey only when selector-based GUI interaction is unreliable, unavailable through UI Automation, or needed for deliberate state recovery.
 Generated scripts must clean up before exit even when the testcase does not request it: close apps/windows opened by the script and delete fixed-path or external files/state that could affect a rerun. Preserve evidence under RunRoot and record cleanup actions in the final JSON.
 After the generated script works, optimize it: replace arbitrary sleeps with specific waits, tighten selectors, remove unused exploratory commands, keep evidence capture intentional, and handle expected dialogs/modals deterministically.
-Generated scripts must create an executionId, write full PoTATo transcripts to logs\potato-commands-<executionId>.jsonl, and keep stdout/result.json compact. Step command entries should be summaries, not full raw PoTATo responses or UI trees.
+Generated scripts must create an executionId, write full PoTATo transcripts to logs\potato-commands-<executionId>.jsonl, and keep stdout/result.json compact. The shared runtime already does this; step command entries should be summaries, not full raw PoTATo responses or UI trees.
 Do not rerun a full GUI script only to polish cosmetic reporting after a successful behavioral validation; use full reruns for behavior changes and static checks for formatting-only changes when safe.
 Do not import old PoTATo testcases or legacy subsystems.
 '@
@@ -501,11 +501,11 @@ Required stage sequence:
 
 Avoid hotkeys when a visible GUI interaction is practical. The goal is GUI testing, so prefer selectors, clicks, waits, reads, drags, hovers, and typing through visible UI controls.
 
-The generated script must include end-of-run cleanup. It should close applications/windows it opened, delete fixed-path or external files/state it created that could affect a future run, preserve intentional evidence under the run folder, and record cleanup actions/errors in the final JSON.
+The generated script must include end-of-run cleanup. It should register opened processes and created external paths with the shared runtime, close applications/windows it opened, delete fixed-path or external files/state it created that could affect a future run, preserve intentional evidence under the run folder, and record cleanup actions/errors in the final JSON.
 
 During development_iteration, perform an optimization pass after correctness: prefer explicit waits over sleeps, tighten selectors, remove unused exploratory commands, keep evidence capture intentional, and make dialog handling deterministic.
 
-Keep generated-script output compact: write full PoTATo responses to a per-execution JSONL command log and include only command summaries in step results. Do not return huge UI trees in stdout.
+Keep generated-script output compact by using Framework\GeneratedScriptRuntime.ps1. Write only testcase-specific actions/selectors/assertions in the generated script; the runtime writes full PoTATo responses to a per-execution JSONL command log and includes only command summaries in step results.
 "@
 }
 
@@ -552,7 +552,7 @@ function Get-AGTAOpenAITools {
         @{
             type = 'function'
             name = 'write_generated_script'
-            description = 'Write or replace the generated PowerShell script under the run generated folder.'
+            description = 'Write or replace the generated PowerShell script under the run generated folder. The script should dot-source Framework\GeneratedScriptRuntime.ps1 and contain testcase-specific automation only.'
             parameters = @{
                 type = 'object'
                 required = @('relativePath', 'content')

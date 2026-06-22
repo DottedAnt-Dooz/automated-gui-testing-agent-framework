@@ -52,6 +52,8 @@ The Development/Iteration stage includes optimization after the script is functi
 
 Generated scripts should keep final JSON small. Full PoTATo responses belong in execution-specific command logs under `logs\`; the final result should contain compact command summaries and a `commandLogPath`. This keeps Codex/API contexts and dashboards from being dominated by large UI trees.
 
+Generated scripts should dot-source `Framework\GeneratedScriptRuntime.ps1` instead of copying the shared helper layer. The runtime provides PoTATo invocation, command logging, step result creation, evidence registration, cleanup, and final JSON writing. Agents should keep generated scripts focused on testcase-specific GUI actions and assertions.
+
 OpenAI API references:
 
 - [Responses API](https://developers.openai.com/api/reference/responses/overview/)
@@ -61,6 +63,7 @@ OpenAI API references:
 ## Folder Layout
 
 - `Framework\AutomatedGuiTestingAgentFramework.psm1` - runtime module.
+- `Framework\GeneratedScriptRuntime.ps1` - shared helper runtime for generated scripts.
 - `Invoke-AgentAuthoring.ps1` - API/mock orchestration entrypoint.
 - `Invoke-AgentAuthoringGui.ps1` - WinForms launcher for API-driven authoring.
 - `docs\GENERATED_SCRIPT_CONTRACT.md` - required generated script format.

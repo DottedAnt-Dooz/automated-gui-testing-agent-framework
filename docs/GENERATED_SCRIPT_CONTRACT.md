@@ -4,17 +4,41 @@ Generated testcase scripts must follow this contract so different agents and API
 
 ## Parameters
 
-Every generated script must accept:
+Every generated script must accept the first three parameters. It should also accept optional `-FrameworkRoot` for explicit runtime resolution:
 
 ```powershell
 param(
     [string] $PotatoCliPath,
     [string] $TestCaseCsv,
-    [string] $RunRoot
+    [string] $RunRoot,
+    [string] $FrameworkRoot
 )
 ```
 
-Defaults are allowed, but the parameters must exist.
+Defaults are allowed. `-FrameworkRoot` is optional but recommended; generated scripts under `runs\<runId>\generated` can default it from `$PSScriptRoot`.
+
+## Shared Runtime
+
+Generated scripts must dot-source the shared runtime unless there is a concrete compatibility reason not to:
+
+```powershell
+$runtimePath = Join-Path -Path $FrameworkRoot -ChildPath 'Framework\GeneratedScriptRuntime.ps1'
+. $runtimePath
+$Context = Initialize-AGTAGeneratedTest -PotatoCliPath $PotatoCliPath -TestCaseCsv $TestCaseCsv -RunRoot $RunRoot
+```
+
+Do not copy universal boilerplate into each generated script. The framework runtime already provides:
+
+- `Invoke-PotatoJson`
+- `Invoke-StepCommand`
+- `Invoke-RecordedStep`
+- `Assert-PotatoOk`, `Assert-PotatoFound`, and `Assert-FileWait`
+- `Invoke-EvidenceScreenshot` and `Add-EvidencePath`
+- `Register-OpenedProcess` and `Register-CreatedExternalPath`
+- `Invoke-TestCleanup`
+- `Complete-AGTAGeneratedTest`
+
+Generated scripts should contain testcase-specific paths, selectors, actions, assertions, and small local helpers only when they are specific to that application or testcase.
 
 ## Runtime Layout
 
@@ -30,13 +54,13 @@ Files created only as evidence should stay under `RunRoot`. Files or application
 
 ## PoTATo Invocation
 
-The script must call `potato_cli\potato.ps1` through a local helper equivalent to:
+The script must call `potato_cli\potato.ps1` through the shared runtime helper:
 
 ```powershell
 Invoke-PotatoJson -Command "observe" -Arguments @("-Depth", "2")
 ```
 
-The helper must:
+The runtime helper:
 
 - run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <potato.ps1>`,
 - parse the single JSON result,
@@ -45,7 +69,7 @@ The helper must:
 
 Each generated script run must create an `executionId` and a dedicated `commandLogPath`. Do not append every validation pass to one shared `potato-commands.jsonl`; repeated executions must be separable for analysis.
 
-The final result JSON should keep command entries compact. A step `commands` item should contain fields like `index`, `command`, `arguments`, `ok`, `durationMs`, `logPath`, and `error`, not the full raw PoTATo response or full UI tree. The full parsed response belongs in the JSONL command log.
+The final result JSON should keep command entries compact. A step `commands` item should contain fields like `index`, `command`, `arguments`, `ok`, `durationMs`, `logPath`, and `error`, not the full raw PoTATo response or full UI tree. The full parsed response belongs in the JSONL command log. `Invoke-StepCommand` and `Complete-AGTAGeneratedTest` already implement this shape.
 
 Prefer selector-based GUI interactions in generated scripts. `hotkey` is allowed for documented fallback paths, common commands that are not reliably exposed through UI Automation, or deliberate state recovery, but it should not replace normal visible GUI navigation when `click`, `select`, `wait-element`, `read`, `hover`, `drag`, or `type` can do the job.
 
@@ -106,7 +130,7 @@ The script must write exactly one JSON object to stdout:
 }
 ```
 
-The same JSON must also be saved to `results\result.json`.
+The same JSON must also be saved to `results\result.json`. Prefer `Complete-AGTAGeneratedTest` for this instead of hand-building the result envelope.
 
 ## Cleanup
 

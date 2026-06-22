@@ -23,13 +23,14 @@ Split the work into three explicit stages. Do not jump directly from reading the
 ### 3. Development/Iteration
 
 1. Generate a PowerShell script that follows the generated-script contract.
-2. Run the generated script once unless the user explicitly asks for generation only.
-3. Fix concrete script or CLI usage defects found during execution.
-4. Optimize the script after it works: replace fixed sleeps with specific waits, remove redundant `observe`/screenshot calls that are not used as evidence, tighten selectors, prefer deterministic checks over broad reads, and reduce coordinate/hotkey fallbacks where reliable GUI selectors exist.
-5. Make robustness improvements: handle expected dialogs/modals, preserve useful error context, keep cleanup idempotent, and avoid assumptions that only hold for the first run.
-6. Add cleanup that runs at the end even when a step fails: close applications/windows opened by the script and remove fixed-path or external files/state created during the run that could affect the next execution.
-7. Save results and evidence under the run folder using compact result JSON and full transcripts in execution-specific log files.
-8. Report the generated script path, result JSON path, screenshots/evidence, cleanup actions, optimization notes, and any failing PoTATo JSON outputs.
+2. Dot-source `Framework\GeneratedScriptRuntime.ps1`; do not rewrite the generic PoTATo/result/cleanup helper layer in the generated script.
+3. Run the generated script once unless the user explicitly asks for generation only.
+4. Fix concrete script or CLI usage defects found during execution.
+5. Optimize the script after it works: replace fixed sleeps with specific waits, remove redundant `observe`/screenshot calls that are not used as evidence, tighten selectors, prefer deterministic checks over broad reads, and reduce coordinate/hotkey fallbacks where reliable GUI selectors exist.
+6. Make robustness improvements: handle expected dialogs/modals, preserve useful error context, keep cleanup idempotent, and avoid assumptions that only hold for the first run.
+7. Add cleanup that runs at the end even when a step fails: close applications/windows opened by the script and remove fixed-path or external files/state created during the run that could affect the next execution.
+8. Save results and evidence under the run folder using compact result JSON and full transcripts in execution-specific log files.
+9. Report the generated script path, result JSON path, screenshots/evidence, cleanup actions, optimization notes, and any failing PoTATo JSON outputs.
 
 ## Allowed Automation Surface
 
@@ -43,6 +44,8 @@ Do not import old PoTATo testcases, image recognition, Selenium, browser-specifi
 
 - Generated scripts must be PowerShell.
 - Generated scripts must accept `-PotatoCliPath`, `-TestCaseCsv`, and `-RunRoot`.
+- Generated scripts should also accept optional `-FrameworkRoot` and dot-source `Framework\GeneratedScriptRuntime.ps1`.
+- Use runtime helpers such as `Initialize-AGTAGeneratedTest`, `Invoke-RecordedStep`, `Invoke-StepCommand`, `Invoke-EvidenceScreenshot`, `Invoke-TestCleanup`, and `Complete-AGTAGeneratedTest` instead of copying boilerplate helper functions.
 - Generated scripts must emit one JSON result object to stdout.
 - Each CSV row must map to one final step result.
 - Step results must include `stepIndex`, `action`, `expectedResult`, `status`, `evidence`, `commands`, and `error`.
