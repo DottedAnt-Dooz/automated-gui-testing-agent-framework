@@ -2,6 +2,8 @@
 
 PowerShell-only framework for turning CSV testcase descriptions into repeatable GUI automation scripts that use `potato_cli`.
 
+[Watch the PoTATo demo recording](https://github.com/DottedAnt-Dooz/automated-gui-testing-agent-framework/releases/download/demo-v1/demo.mkv)
+
 ## Workflows
 
 ### 1. Agent Session Workflow
