@@ -46,7 +46,7 @@ The OpenAI provider reads `OPENAI_API_KEY` from the environment and uses the Res
 
 The API workflow exposes a `set_authoring_stage` tool. The model must enter `planning`, then `exploration`, then `development_iteration`. PoTATo exploration commands are blocked until the exploration stage is active, and generated-script writing/running is blocked until development/iteration is active.
 
-For both workflows, agents should prefer real GUI operations over keyboard shortcuts. Hotkeys are allowed as fallbacks or state-management commands, but selector-based clicks, reads, waits, drags, and typing are preferred because the evaluation focuses on GUI testing.
+Both workflows default to enforced VisibleControls. Hotkeys and Shortcut clearing require an explicitly authorized AllowShortcuts run and recorded fallback evidence; recovery is not an automatic exception.
 
 Generated scripts must also clean up after themselves before exiting. They should preserve run-folder evidence, but close any applications they opened and delete fixed-path or external files/state they created that could make a later run fail or take a different path.
 
@@ -74,7 +74,7 @@ OpenAI API references:
 - `Invoke-AgentAuthoringGui.ps1` - WinForms launcher for API-driven authoring.
 - `docs\GENERATED_SCRIPT_CONTRACT.md` - required generated script format.
 - `prompts\SESSION_AGENT_PROMPT.md` - prompt for robust coding agents.
-- `examples\MicrosoftPaint.Reference.ps1` - reference output script style.
+- `docs\AUTHORING.md` - concise policy, discovery, runtime, and verification guide.
 - `runs\` - generated runtime artifacts, ignored by git.
 
 ## Required CSV Columns
@@ -117,3 +117,7 @@ See `..\automated-gui-testing-agent-analysis\README.md` for metric files, cost-e
 ## Environment Assumptions
 
 v1 assumes the VM is already logged into an interactive desktop. It does not restore checkpoints, call LoginAgent, unlock the desktop, or install applications.
+
+## Policy and execution changes
+
+Start with `docs/AUTHORING.md`. VisibleControls is enforced by default, including exploration; shortcut exceptions require explicit authorization and evidence. InProcess execution reuses the CLI module while Process remains available for comparisons. Generated scripts must emit JSON and exit with `Get-AGTATestExitCode`. Register ownership with `Register-OpenedProcess -StartResult`, not a process name. The historical shortcut-based Paint example has been retired; Mock now emits a generic template with SKIPPED placeholders and cannot claim GUI coverage.

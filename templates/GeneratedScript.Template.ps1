@@ -1,9 +1,12 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string] $PotatoCliPath,
     [string] $TestCaseCsv,
     [string] $RunRoot,
-    [string] $FrameworkRoot
+    [string] $FrameworkRoot,
+    [ValidateSet('VisibleControls','AllowShortcuts')] [string] $InteractionPolicy = 'VisibleControls',
+    [string] $PolicyReason,
+    [ValidateSet('InProcess','Process')] [string] $Transport = 'InProcess'
 )
 
 $runtimeCandidates = @()
@@ -22,7 +25,7 @@ if (-not $runtimePath) {
 $FrameworkRoot = Split-Path -Parent (Split-Path -Parent $runtimePath)
 . $runtimePath
 
-$Context = Initialize-AGTAGeneratedTest -PotatoCliPath $PotatoCliPath -TestCaseCsv $TestCaseCsv -RunRoot $RunRoot -RequireAssertions
+$Context = Initialize-AGTAGeneratedTest -PotatoCliPath $PotatoCliPath -TestCaseCsv $TestCaseCsv -RunRoot $RunRoot -RequireAssertions -InteractionPolicy $InteractionPolicy -PolicyReason $PolicyReason -Transport $Transport
 $results = @()
 $cleanup = @()
 
@@ -43,7 +46,7 @@ try {
     #     $started = Invoke-StepCommand -Commands $Commands -Command 'start' -Arguments @('-ProcessName', 'notepad.exe', '-WaitForWindowMs', '10000')
     #     Assert-PotatoOk -Result $started -Message 'Could not start the target app.'
     #     Assert-ExpectedResult -Condition ([bool]$started.data.windowFound) -Message 'The target application window must be visible.'
-    #     Register-OpenedProcess -ProcessName 'notepad'
+    #     Register-OpenedProcess -StartResult $started
     #     Invoke-EvidenceScreenshot -Commands $Commands -Evidence $Evidence -FileName '01-opened.png' | Out-Null
     # }
 }
@@ -52,3 +55,5 @@ finally {
 }
 
 Complete-AGTAGeneratedTest -StepResults $results -Cleanup $cleanup
+
+exit (Get-AGTATestExitCode)

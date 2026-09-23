@@ -1,5 +1,7 @@
 # Generated Script Contract
 
+Start with `AUTHORING.md` and the template. VisibleControls is the default; no hotkey/Shortcut fallback is authorized by a selector failure. AllowShortcuts requires an explicit user/testcase allowance, a run PolicyReason, and per-command FallbackReason/FallbackEvidence.
+
 Generated testcase scripts must follow this contract so different agents and API providers produce comparable artifacts.
 
 ## Parameters
@@ -35,7 +37,7 @@ Do not copy universal boilerplate into each generated script. The framework runt
 - `Assert-PotatoOk`, `Assert-PotatoFound`, and `Assert-FileWait`
 - `Assert-ExpectedResult -Condition <bool> -Message <expected postcondition>`
 - `Invoke-EvidenceScreenshot` and `Add-EvidencePath`
-- `Register-OpenedProcess` and `Register-CreatedExternalPath`
+- `Register-OpenedProcess -StartResult $started` and `Register-CreatedExternalPath`
 - `Invoke-TestCleanup`
 - `Complete-AGTAGeneratedTest`
 
@@ -72,7 +74,7 @@ Each generated script run must create an `executionId` and a dedicated `commandL
 
 The final result JSON should keep command entries compact. A step `commands` item should contain fields like `index`, `command`, `arguments`, `ok`, `durationMs`, `logPath`, and `error`, not the full raw PoTATo response or full UI tree. The full parsed response belongs in the JSONL command log. `Invoke-StepCommand` and `Complete-AGTAGeneratedTest` already implement this shape.
 
-Prefer selector-based GUI interactions in generated scripts. `hotkey` is allowed for documented fallback paths, common commands that are not reliably exposed through UI Automation, or deliberate state recovery, but it should not replace normal visible GUI navigation when `click`, `select`, `wait-element`, `read`, `hover`, `drag`, or `type` can do the job.
+VisibleControls is enforced by default. Hotkeys, including Enter confirmations, and Shortcut clearing are rejected. AllowShortcuts requires explicit user/testcase authorization at initialization and per-action fallback reason/evidence; unreliable UIA or recovery is not permission.
 
 Generated scripts should be optimized after they are functionally correct. Use specific waits instead of arbitrary sleeps, keep selectors as narrow as the application allows, avoid redundant `observe` or screenshot calls that are not used for evidence/debugging, and make expected dialogs/modals explicit instead of relying on timing.
 
@@ -114,7 +116,7 @@ Allowed statuses:
 
 New scripts must initialize with `-RequireAssertions`. `Invoke-RecordedStep` then requires a recorded postcondition and adds `assertions` to each result. `Assert-PotatoFound` and `Assert-FileWait` record assertions; `Assert-PotatoOk` checks command execution and does not count. Use `Assert-ExpectedResult` to compare actual content with expected values. Screenshot capture alone is not an assertion. The author must still choose checks that prove the CSV requirement.
 
-The runtime attempts a failure screenshot before cleanup and preserves the original error if capture fails. Explicitly mark dependent rows `SKIPPED` after a failed prerequisite. Final `ok` requires each original row exactly once with its original action/expectation, all rows passing, recorded assertions when required, and successful cleanup. `-AllowSkipped` remains accepted for compatibility but no longer makes skipped work pass. Assertions are opt-in for older scripts; the supplied template enables them.
+The runtime attempts a failure screenshot before cleanup and preserves the original error if capture fails. Explicitly mark dependent rows `SKIPPED` after a failed prerequisite. Final `ok` requires each original row exactly once with its original action/expectation, all rows passing, recorded assertions when required, and successful cleanup. `-AllowSkipped` remains accepted for compatibility but no longer makes skipped work pass. Assertions default on. The template emits JSON and exits with `Get-AGTATestExitCode`; failure must be nonzero.
 
 The script must write exactly one JSON object to stdout:
 
@@ -164,3 +166,9 @@ Development/iteration should normally run the generated script once after each b
 ## Coordinate Fallbacks
 
 Coordinate clicks and drags are allowed only when selector-based automation is not reliable. The script must include a short comment and save a screenshot near the fallback action.
+
+## Runtime additions
+
+The template accepts `-InteractionPolicy`, `-PolicyReason`, and `-Transport`. InProcess is the default; Process preserves the previous transport. Policy is fixed at initialization. Result `interactionPolicy` records mode, reason, and compliance. `timing` records totalMs, wrapperMs, backendMs, commandOverheadMs, waitMs, cleanupMs, and otherMs; wait/cleanup overlap command timing. `Complete-AGTAGeneratedTest -PassThru` returns the result object without emitting JSON and never exits its caller. Entry points must emit the result and then call `exit (Get-AGTATestExitCode)`.
+
+Use `Read-AGTAArtifactBytes` / `Assert-ArtifactPrefix` for bounded shared reads after stable-file waits; content assertions still belong to the testcase. `start` rejects existing application processes in generated runs; register the returned ownership using `Register-OpenedProcess -StartResult`. Legacy process-name registration is intentionally rejected.

@@ -1,3 +1,4 @@
+﻿. (Join-Path $PSScriptRoot 'ArtifactAssertions.ps1')
 function Initialize-AGTAGeneratedTest {
     [CmdletBinding()]
     param(
@@ -12,7 +13,10 @@ function Initialize-AGTAGeneratedTest {
 
         [string] $ExecutionId = (Get-Date -Format 'yyyyMMdd_HHmmss_ffff'),
 
-        [switch] $RequireAssertions
+        [switch] $RequireAssertions = $true,
+        [ValidateSet('VisibleControls','AllowShortcuts')] [string] $InteractionPolicy = 'VisibleControls',
+        [string] $PolicyReason,
+        [ValidateSet('InProcess','Process')] [string] $Transport = 'InProcess'
     )
 
     if (-not (Test-Path -LiteralPath $PotatoCliPath)) {
@@ -22,6 +26,12 @@ function Initialize-AGTAGeneratedTest {
         throw "Testcase CSV was not found: $TestCaseCsv"
     }
 
+    if ($InteractionPolicy -eq 'AllowShortcuts' -and [string]::IsNullOrWhiteSpace($PolicyReason)) { throw 'AllowShortcuts requires PolicyReason recording the user/testcase authorization.' }
+    $cliModule = $null
+    if ($Transport -eq 'InProcess') {
+        $modulePath = Join-Path (Split-Path -Parent $PotatoCliPath) 'PoTAToCli\PoTAToCli.psm1'
+        $cliModule = Import-Module $modulePath -PassThru -ErrorAction Stop
+    }
     $steps = @(Import-Csv -LiteralPath $TestCaseCsv)
     if ($steps.Count -eq 0) { throw 'Testcase CSV must contain at least one step.' }
     foreach ($column in @('Action', 'Data', 'Expected Result')) {
@@ -57,6 +67,14 @@ function Initialize-AGTAGeneratedTest {
         StartedAt = $startedAt
         Steps = $steps
         RequireAssertions = [bool]$RequireAssertions
+        InteractionPolicy = $InteractionPolicy
+        PolicyReason = $PolicyReason
+        PolicyCompliant = $true
+        Transport = $Transport
+        CliModule = $cliModule
+        Timing = [ordered]@{ commandCount=0; wrapperMs=0L; backendMs=0L; waitMs=0L; cleanupMs=0L }
+        LastCommandTiming = $null
+        FinalOk = $false
     }
     $script:AGTAOpenedProcessNames = @()
     $script:AGTACreatedExternalPaths = @()
@@ -103,24 +121,43 @@ function Invoke-PotatoJson {
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
     $raw = @()
     $exitCode = 0
-    try {
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $context.PotatoCliPath $Command @Arguments 2>&1 | ForEach-Object { $raw += $_ }
-        $exitCode = $LASTEXITCODE
+    # The run policy is fixed at initialization, including cleanup and exploration helpers.
+    if (@($Arguments | Where-Object { $_ -match '^--?InteractionPolicy(?:=|$)' }).Count) {
+        $context.PolicyCompliant = $false
+        throw 'Per-command InteractionPolicy overrides are forbidden. Use the declared run policy.'
     }
-    catch { $raw += $_.ToString(); $exitCode = 1 }
-    $watch.Stop()
-    $rawText = (@($raw) -join [Environment]::NewLine)
+    $effectiveArgs = @($Arguments) + @('-InteractionPolicy', $context.InteractionPolicy)
+    if ($Command -eq 'start') { $effectiveArgs += @('-RequireNewProcess', 'true') }
+    $parsed = $null
     try {
-        $parsed = ConvertFrom-PotatoOutput -RawOutput $rawText
-        if ($exitCode -ne 0) { throw "PoTATo process exited with code $exitCode." }
-    }
-    catch {
-        $parsed = [pscustomobject]@{
-            ok = $false; command = $Command; data = $null; durationMs = [int]$watch.ElapsedMilliseconds
-            error = @{ message = "PoTATo returned invalid output or exited unsuccessfully (exit code $exitCode). See $($context.CommandLogPath)."; type = 'TransportError' }
+        if ($context.Transport -eq 'InProcess') {
+            $parsed = & $context.CliModule { param($cmd,$values,$root) Invoke-PotatoCliCommand -Command $cmd -Arguments $values -CliRoot $root -AsObject } $Command $effectiveArgs (Split-Path -Parent $context.PotatoCliPath)
+            $raw = @($parsed | ConvertTo-Json -Depth 80 -Compress)
+        }
+        else {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $context.PotatoCliPath $Command @effectiveArgs 2>&1 | ForEach-Object { $raw += $_ }
+            $exitCode = $LASTEXITCODE
+            $parsed = ConvertFrom-PotatoOutput -RawOutput (@($raw) -join [Environment]::NewLine)
+            if ($exitCode -ne 0 -and $parsed.ok) { throw "Process status disagrees with successful JSON: $exitCode" }
         }
     }
+    catch {
+        $raw += $_.ToString(); $exitCode = 1
+        $parsed = [pscustomobject]@{
+            ok=$false;command=$Command;data=$null;durationMs=0;outcome='unknown'
+            error=@{message="PoTATo transport failed; observe the postcondition before retrying. $($_.Exception.Message)";type='TransportError'}
+        }
+    }
+    $watch.Stop()
+    $rawText = @($raw) -join [Environment]::NewLine
+    if ($parsed.error.type -eq 'InteractionPolicyViolation') { $context.PolicyCompliant = $false }
+    $context.LastCommandTiming = @{wrapperMs=[long]$watch.ElapsedMilliseconds;backendMs=[long]$parsed.durationMs}
+    $context.Timing.commandCount++
+    $context.Timing.wrapperMs += $watch.ElapsedMilliseconds
+    $context.Timing.backendMs += [long]$parsed.durationMs
+    if ($Command -in @('wait-file','wait-element')) { $context.Timing.waitMs += [long]$parsed.durationMs }
 
+    if ($Command -eq 'start' -and $parsed.ok -and $parsed.data.ownedProcessId) { Register-OpenedProcess -StartResult $parsed }
     $script:AGTACommandIndex++
     [ordered]@{
         index = $script:AGTACommandIndex
@@ -130,8 +167,10 @@ function Invoke-PotatoJson {
         raw = $rawText
         parsed = $parsed
         wrapperDurationMs = [int]$watch.ElapsedMilliseconds
+        transport = $context.Transport
+        interactionPolicy = $context.InteractionPolicy
         exitCode = $exitCode
-    } | ConvertTo-Json -Depth 80 -Compress | Add-Content -LiteralPath $context.CommandLogPath -Encoding UTF8
+    } | ConvertTo-Json -Depth 80 -Compress | Add-Content -LiteralPath $context.CommandLogPath -Encoding UTF8 -ErrorAction Stop
 
     return $parsed
 }
@@ -155,6 +194,9 @@ function New-CommandSummary {
         arguments = @($Arguments)
         ok = [bool]$Result.ok
         durationMs = [int]$Result.durationMs
+        wrapperDurationMs = $context.LastCommandTiming.wrapperMs
+        outcome = $Result.outcome
+        interactionPolicy = $Result.interactionPolicy
         logPath = $context.CommandLogPath
         error = $(if ($Result.error) { $Result.error.message } else { $null })
     }
@@ -312,14 +354,13 @@ function Invoke-ClickAny {
 
 function Register-OpenedProcess {
     [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string] $ProcessName
-    )
-
-    if ($script:AGTAOpenedProcessNames -notcontains $ProcessName) {
-        $script:AGTAOpenedProcessNames += $ProcessName
-    }
+    param([Parameter(Mandatory)] [object] $StartResult)
+    Assert-PotatoOk $StartResult
+    $ownedId = $StartResult.data.ownedProcessId
+    if (-not $ownedId) { throw 'Start did not establish an owned process. Refusing broad process-name cleanup.' }
+    $owned = Get-Process -Id $ownedId -ErrorAction Stop
+    if (@($script:AGTAOpenedProcessNames | Where-Object { $_.Id -eq $owned.Id -and $_.StartTime -eq $owned.StartTime }).Count) { return }
+    $script:AGTAOpenedProcessNames += [pscustomobject]@{Id=$owned.Id;StartTime=$owned.StartTime}
 }
 
 function Register-CreatedExternalPath {
@@ -358,15 +399,16 @@ function Invoke-OptionalCleanupClick {
 
         [string] $ControlType = 'Button',
 
-        [int] $TimeoutMs = 600
+        [int] $TimeoutMs = 0,
+        [Parameter(Mandatory)] [int] $ProcessId
     )
 
     foreach ($name in $Names) {
         try {
-            $selectArgs = @('-Name', $name, '-ControlType', $ControlType, '-FindFirst', '-TimeoutMs', "$TimeoutMs")
+            $selectArgs = @('-ProcessId', "$ProcessId", '-ModalOnly', 'true', '-Name', $name, '-ControlType', $ControlType, '-FindFirst', '-TimeoutMs', "$TimeoutMs")
             $found = Invoke-PotatoJson -Command 'select' -Arguments $selectArgs
             if (Test-PotatoFound -Result $found) {
-                $clickArgs = @('-Name', $name, '-ControlType', $ControlType, '-FindFirst', '-TimeoutMs', "$TimeoutMs")
+                $clickArgs = @('-ProcessId', "$ProcessId", '-ModalOnly', 'true', '-Name', $name, '-ControlType', $ControlType, '-FindFirst', '-TimeoutMs', "$TimeoutMs")
                 $clicked = Invoke-PotatoJson -Command 'click' -Arguments $clickArgs
                 return [pscustomobject][ordered]@{
                     action = 'optional-click'
@@ -403,57 +445,31 @@ function Invoke-TestCleanup {
     $context = Get-AGTAGeneratedTestContext
     $records = @()
 
-    foreach ($processName in @($script:AGTAOpenedProcessNames | Select-Object -Unique)) {
+    $cleanupWatch = [Diagnostics.Stopwatch]::StartNew()
+    foreach ($owned in $script:AGTAOpenedProcessNames) {
         try {
-            $lookupName = [System.IO.Path]::GetFileNameWithoutExtension($processName)
-            if (-not @(Get-Process -Name $lookupName -ErrorAction SilentlyContinue)) {
-                $records += [pscustomobject][ordered]@{
-                    action = 'close-window'
-                    target = $processName
-                    ok = $true
-                    error = $null
-                    note = 'Process was not running.'
-                }
-                continue
-            }
-
-            $result = Invoke-PotatoJson -Command 'close-window' -Arguments @('-ProcessName', $lookupName, '-TimeoutMs', "$CloseTimeoutMs")
-            $records += [pscustomobject][ordered]@{
-                action = 'close-window'
-                target = $lookupName
-                ok = [bool]$result.ok
-                error = $(if ($result.error) { $result.error.message } else { $null })
-            }
-
-            Start-Sleep -Milliseconds 250
-            if (-not @(Get-Process -Name $lookupName -ErrorAction SilentlyContinue)) {
-                continue
-            }
-
-            $discard = Invoke-OptionalCleanupClick -Names $DiscardPromptNames -ControlType $DiscardPromptControlType -TimeoutMs $PromptTimeoutMs
-            if ($discard) {
-                $records += $discard
-                Start-Sleep -Milliseconds 250
-                if (@(Get-Process -Name $lookupName -ErrorAction SilentlyContinue)) {
-                    $retry = Invoke-PotatoJson -Command 'close-window' -Arguments @('-ProcessName', $lookupName, '-TimeoutMs', "$CloseTimeoutMs")
-                    $records += [pscustomobject][ordered]@{
-                        action = 'close-window'
-                        target = $lookupName
-                        ok = [bool]$retry.ok
-                        error = $(if ($retry.error) { $retry.error.message } else { $null })
-                        note = 'Retry after optional discard prompt.'
-                    }
+            $live = Get-Process -Id $owned.Id -ErrorAction SilentlyContinue
+            if (-not $live -or $live.StartTime -ne $owned.StartTime) { continue }
+            $closed = Invoke-PotatoJson 'close-window' @('-ProcessId', "$($owned.Id)", '-TimeoutMs', '0')
+            Assert-PotatoOk $closed
+            # One bounded scoped probe, not one long timeout for every possible label.
+            $modal = Invoke-PotatoJson 'select' @('-ProcessId', "$($owned.Id)", '-ControlType','Window','-TimeoutMs',"$PromptTimeoutMs")
+            foreach ($item in @($modal.data.elements)) {
+                if ($item.nativeWindowHandle) {
+                    $discard = Invoke-OptionalCleanupClick -Names $DiscardPromptNames -ControlType $DiscardPromptControlType -TimeoutMs 0 -ProcessId $owned.Id
+                    if ($discard) { $records += $discard; break }
                 }
             }
+            $until = [Diagnostics.Stopwatch]::StartNew()
+            do {
+                $remaining = Invoke-PotatoJson 'windows' @('-ProcessId', "$($owned.Id)", '-TimeoutMs','0')
+                Assert-PotatoOk $remaining
+                if ($remaining.data.count -eq 0) { break }
+                Start-Sleep -Milliseconds 100
+            } while ($until.ElapsedMilliseconds -lt $CloseTimeoutMs)
+            $records += [pscustomobject]@{action='close-owned-process';target=$owned.Id;ok=($remaining.data.count -eq 0);error=$(if ($remaining.data.count) {'Owned windows remain open.'} else {$null})}
         }
-        catch {
-            $records += [pscustomobject][ordered]@{
-                action = 'close-window'
-                target = $processName
-                ok = $false
-                error = $_.Exception.Message
-            }
-        }
+        catch { $records += [pscustomobject]@{action='close-owned-process';target=$owned.Id;ok=$false;error=$_.Exception.Message} }
     }
 
     foreach ($path in @($script:AGTACreatedExternalPaths | Select-Object -Unique)) {
@@ -505,6 +521,7 @@ function Invoke-TestCleanup {
         }
     }
 
+    $context.Timing.cleanupMs += $cleanupWatch.ElapsedMilliseconds
     return $records
 }
 
@@ -600,7 +617,8 @@ function Complete-AGTAGeneratedTest {
 
         [switch] $AllowSkipped,
 
-        [object] $ExtraArtifacts = $null
+        [object] $ExtraArtifacts = $null,
+        [switch] $PassThru
     )
 
     $context = Get-AGTAGeneratedTestContext
@@ -643,9 +661,12 @@ function Complete-AGTAGeneratedTest {
             if ($step.status -eq 'PASS' -and (@($step.assertions).Count -eq 0 -or $null -eq $step.assertions -or @($step.assertions | Where-Object { $_.passed -ne $true }).Count -gt 0)) { $assertionsOk = $false }
         }
     }
-    $ok = ($coverageOk -and $validStatuses -and $cleanupOk -and $assertionsOk -and $summary.failed -eq 0 -and $summary.skipped -eq 0)
+    $ok = ($context.PolicyCompliant -and $coverageOk -and $validStatuses -and $cleanupOk -and $assertionsOk -and $summary.failed -eq 0 -and $summary.skipped -eq 0)
     $final = [ordered]@{
         ok = $ok
+        interactionPolicy = @{ mode=$context.InteractionPolicy; reason=$context.PolicyReason; compliant=$context.PolicyCompliant }
+        transport = $context.Transport
+        timing = $context.Timing
         testCase = $context.TestCaseName
         runRoot = $context.RunRoot
         executionId = $context.ExecutionId
@@ -660,6 +681,15 @@ function Complete-AGTAGeneratedTest {
         assertionsOk = $assertionsOk
     }
 
+    $context.FinalOk = $ok
+    $context.Timing.totalMs = [long]((Get-Date) - $context.StartedAt).TotalMilliseconds
+    $context.Timing.commandOverheadMs = $context.Timing.wrapperMs - $context.Timing.backendMs
+    $context.Timing.otherMs = $context.Timing.totalMs - $context.Timing.wrapperMs
     $final | ConvertTo-Json -Depth 80 | Set-Content -LiteralPath $context.ResultPath -Encoding UTF8
+    if ($PassThru) { return [pscustomobject]$final }
     $final | ConvertTo-Json -Depth 80 -Compress
+}
+
+function Get-AGTATestExitCode {
+    if ((Get-AGTAGeneratedTestContext).FinalOk) { return 0 }; return 1
 }

@@ -1,4 +1,4 @@
-$script:ModuleRoot = Split-Path -Parent $PSCommandPath
+﻿$script:ModuleRoot = Split-Path -Parent $PSCommandPath
 $script:FrameworkRoot = Split-Path -Parent $script:ModuleRoot
 
 function Get-AGTAFrameworkRoot {
@@ -198,9 +198,11 @@ function Invoke-AGTAProcess {
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $psi
     [void]$process.Start()
-    $stdout = $process.StandardOutput.ReadToEnd()
-    $stderr = $process.StandardError.ReadToEnd()
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
     $process.WaitForExit()
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
 
     return [pscustomobject][ordered]@{
         exitCode = $process.ExitCode
@@ -343,7 +345,8 @@ function Invoke-AGTAPotatoJson {
         [string[]] $Arguments = @(),
 
         [Parameter(Mandatory)]
-        [string] $RunRoot
+        [string] $RunRoot,
+        [ValidateSet('VisibleControls','AllowShortcuts')] [string] $InteractionPolicy = 'VisibleControls'
     )
 
     if (-not (Test-Path -LiteralPath $PotatoCliPath)) {
@@ -351,9 +354,14 @@ function Invoke-AGTAPotatoJson {
     }
 
     $logPath = Join-Path -Path $RunRoot -ChildPath 'logs\potato-commands.jsonl'
+    if (@($Arguments | Where-Object { $_ -match '^--?InteractionPolicy(?:=|$)' }).Count) { throw 'Command policy overrides are forbidden.' }
+    $Arguments = @($Arguments) + @('-InteractionPolicy', $InteractionPolicy)
     $processArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PotatoCliPath, $Command) + $Arguments
     $startedAt = Get-Date
-    $processResult = Invoke-AGTAProcess -FilePath 'powershell.exe' -Arguments $processArgs
+    $modulePath = Join-Path (Split-Path -Parent $PotatoCliPath) 'PoTAToCli\PoTAToCli.psm1'
+    $cliModule = Import-Module $modulePath -PassThru -ErrorAction Stop
+    $value = & $cliModule { param($cmd,$values,$root) Invoke-PotatoCliCommand -Command $cmd -Arguments $values -CliRoot $root -AsObject } $Command $Arguments (Split-Path -Parent $PotatoCliPath)
+    $processResult = [pscustomobject]@{exitCode=0;stdout=($value | ConvertTo-Json -Depth 80 -Compress);stderr=''}
     $finishedAt = Get-Date
 
     $record = [ordered]@{
@@ -439,12 +447,14 @@ function Test-AGTAGeneratedResult {
         [object[]] $ExpectedSteps = @()
     )
 
-    $requiredTopLevel = @('ok', 'testCase', 'runRoot', 'startedAt', 'finishedAt', 'steps', 'summary', 'artifacts')
+    $requiredTopLevel = @('ok', 'testCase', 'runRoot', 'startedAt', 'finishedAt', 'steps', 'summary', 'artifacts', 'interactionPolicy')
     foreach ($field in $requiredTopLevel) {
         if ($Result.PSObject.Properties.Name -notcontains $field) { return $false }
     }
 
     if ($Result.ok -isnot [bool]) { return $false }
+    if ($Result.interactionPolicy.mode -notin @('VisibleControls','AllowShortcuts')) { return $false }
+    if ($Result.ok -and $Result.interactionPolicy.compliant -ne $true) { return $false }
     $steps = @($Result.steps)
     if ($steps.Count -eq 0) { return $false }
     $seen = @{}
@@ -453,6 +463,7 @@ function Test-AGTAGeneratedResult {
             if ($step.PSObject.Properties.Name -notcontains $field) { return $false }
         }
         if ($step.status -notin @('PASS', 'FAIL', 'SKIPPED')) { return $false }
+        if ($step.status -eq 'PASS' -and (-not @($step.assertions).Count -or $null -eq $step.assertions -or @($step.assertions | Where-Object { $_.passed -ne $true }).Count)) { return $false }
         $index = 0
         if (-not [int]::TryParse([string]$step.stepIndex, [ref]$index) -or $index -lt 1 -or $index -gt $steps.Count -or $seen.ContainsKey($index)) { return $false }
         $seen[$index] = $true
@@ -476,30 +487,10 @@ function Get-AGTASystemPrompt {
     [CmdletBinding()]
     param()
 
-    @'
-You generate repeatable PowerShell GUI test scripts from CSV testcases.
-Use only the provided tools for filesystem access, PoTATo CLI execution, and script validation.
-Use run_potato help -Topic <command> for arguments; help is available during planning. Keep desktop commands sequential. Explore unknown transitions once and record discoveries instead of repeatedly dumping UI trees.
-User/testcase prohibitions override fallback guidance. Never substitute shortcuts, clipboard, object models, process/file-association opening, or directly created output for a required GUI route. Report unavailable coverage as incomplete. Preserve failed-run evidence.
-You must split the work into exactly these stages and call set_authoring_stage before doing the work for each stage:
-1. planning: read the testcase, map rows to likely GUI actions, identify unknown selectors/dialogs, and decide what evidence is needed.
-2. exploration: use PoTATo commands to navigate the real UI and learn the actual windows, controls, selectors, timing, modal behavior, and verification points.
-3. development_iteration: write the generated script, run it when execution is enabled, inspect failures, fix concrete defects, and optimize for speed and robustness.
-Do not call run_potato except help until the exploration stage is active.
-Do not write or run the generated script until the development_iteration stage is active.
-The generated script must accept -PotatoCliPath, -TestCaseCsv, and -RunRoot. It should also accept optional -FrameworkRoot.
-The generated script must dot-source Framework\GeneratedScriptRuntime.ps1, call Initialize-AGTAGeneratedTest, and use the runtime helpers for PoTATo invocation, compact command summaries, evidence handling, cleanup, step results, and final JSON writing. Do not copy this universal helper layer into the generated script.
-Initialize new scripts with -RequireAssertions. Map each row to a meaningful Assert-ExpectedResult, Assert-PotatoFound, or Assert-FileWait check. Command success/screenshots alone do not establish application correctness. Use unique output paths and nonempty/stable file waits followed by required content checks. Observe before retrying an ambiguous action. Parse scripts and validate paths/CSV before GUI runs; compute defaults in the body.
-Each CSV row maps to one final step result with stepIndex, action, expectedResult, status, evidence, commands, and error.
-The final generated script must write exactly one JSON object to stdout and save it to results\result.json.
-Coordinate clicks are allowed only as documented fallbacks with screenshots.
-Prefer visible GUI operations over hotkeys. Use hotkey only when selector-based GUI interaction is unreliable, unavailable through UI Automation, or needed for deliberate state recovery.
-Generated scripts must clean up before exit even when the testcase does not request it: close apps/windows opened by the script and delete fixed-path or external files/state that could affect a rerun. Preserve evidence under RunRoot and record cleanup actions in the final JSON.
-After the generated script works, optimize it: replace arbitrary sleeps with specific waits, tighten selectors, remove unused exploratory commands, keep evidence capture intentional, and handle expected dialogs/modals deterministically.
-Generated scripts must create an executionId, write full PoTATo transcripts to logs\potato-commands-<executionId>.jsonl, and keep stdout/result.json compact. The shared runtime already does this; step command entries should be summaries, not full raw PoTATo responses or UI trees.
-Do not rerun a full GUI script only to polish cosmetic reporting after a successful behavioral validation; use full reruns for behavior changes and static checks for formatting-only changes when safe.
-Do not import old PoTATo testcases or legacy subsystems.
-'@
+    $guide = Get-Content -LiteralPath (Join-Path $script:FrameworkRoot 'docs\AUTHORING.md') -Raw
+    $template = Get-Content -LiteralPath (Join-Path $script:FrameworkRoot 'templates\GeneratedScript.Template.ps1') -Raw
+    return "Use the provided tools. Call set_authoring_stage for planning, exploration, then development_iteration. run_potato help is allowed during planning. Write and execute scripts only in development_iteration. Read_testcase returns the CSV. Keep desktop commands sequential.`n$guide`nGenerated template:`n$template"
+
 }
 
 function Get-AGTAUserPrompt {
@@ -522,7 +513,7 @@ Required stage sequence:
 2. Call set_authoring_stage with stage "exploration", then use PoTATo to explore and manually perform the required GUI actions.
 3. Call set_authoring_stage with stage "development_iteration", then write, validate, fix, and optimize the generated script.
 
-Avoid hotkeys when a visible GUI interaction is practical. The goal is GUI testing, so prefer selectors, clicks, waits, reads, drags, hovers, and typing through visible UI controls.
+VisibleControls is the default: no hotkeys, dialog Enter, Shortcut clearing, clipboard, or file-association opening. Apply the declared run policy equally to exploration and execution.
 
 The generated script must include end-of-run cleanup. It should register opened processes and created external paths with the shared runtime, close applications/windows it opened, delete fixed-path or external files/state it created that could affect a future run, preserve intentional evidence under the run folder, and record cleanup actions/errors in the final JSON.
 
@@ -683,7 +674,7 @@ function Invoke-AGTAAgentTool {
             if ($command -notin $allowed) { throw "PoTATo command is not allowed: $command" }
             $args = @()
             if ($Arguments.arguments) { $args = @($Arguments.arguments | ForEach-Object { [string]$_ }) }
-            return Invoke-AGTAPotatoJson -PotatoCliPath $Context.PotatoCliPath -Command $command -Arguments $args -RunRoot $Context.Run.runRoot
+            return Invoke-AGTAPotatoJson -PotatoCliPath $Context.PotatoCliPath -Command $command -Arguments $args -RunRoot $Context.Run.runRoot -InteractionPolicy $Context.InteractionPolicy
         }
         'write_generated_script' {
             Assert-AGTAAuthoringStage -Context $Context -AllowedStages @('development_iteration') -ToolName $Name
@@ -705,14 +696,17 @@ function Invoke-AGTAAgentTool {
                 '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $path,
                 '-PotatoCliPath', $Context.PotatoCliPath,
                 '-TestCaseCsv', $Context.TestCaseCsv,
-                '-RunRoot', $Context.Run.runRoot
+                '-RunRoot', $Context.Run.runRoot,
+                '-FrameworkRoot', $script:FrameworkRoot,
+                '-InteractionPolicy', $Context.InteractionPolicy,
+                '-PolicyReason', $(if ($Context.PolicyReason) { $Context.PolicyReason } else { 'Strict default' })
             )
             $logPath = Join-Path -Path $Context.Run.logs -ChildPath 'generated-script-run.json'
             $proc | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $logPath -Encoding UTF8
             $generatedOk = $false
             try {
                 $generatedParsed = $proc.stdout.Trim() | ConvertFrom-Json
-                $generatedOk = ($proc.exitCode -eq 0 -and (Test-AGTAGeneratedResult -Result $generatedParsed -ExpectedSteps $Context.Steps) -and [bool]$generatedParsed.ok)
+                $generatedOk = ($proc.exitCode -eq 0 -and (Test-AGTAGeneratedResult -Result $generatedParsed -ExpectedSteps $Context.Steps) -and [bool]$generatedParsed.ok -and $generatedParsed.interactionPolicy.mode -eq $Context.InteractionPolicy)
             }
             catch {}
             Write-AGTAMetric -RunRoot $Context.Run.runRoot -Metric ([ordered]@{
@@ -828,6 +822,7 @@ function Invoke-AGTAOpenAIAuthoring {
     $previousResponseId = $null
     if (-not $SystemPrompt) { $SystemPrompt = Get-AGTASystemPrompt }
     if (-not $UserPrompt) { $UserPrompt = Get-AGTAUserPrompt -Steps $Context.Steps }
+    $UserPrompt += "`nResolved run policy: $($Context.InteractionPolicy). Authorization: $($Context.PolicyReason). Use this same policy in generated execution."
     $input = @(
         @{ role = 'user'; content = $UserPrompt }
     )
@@ -906,13 +901,13 @@ function Invoke-AGTAOpenAIAuthoring {
     return $final
 }
 
-function Get-AGTAMockPaintScript {
+function Get-AGTAMockScript {
     [CmdletBinding()]
     param()
 
-    $path = Join-Path -Path (Get-AGTAFrameworkRoot) -ChildPath 'examples\MicrosoftPaint.Reference.ps1'
+    $path = Join-Path -Path (Get-AGTAFrameworkRoot) -ChildPath 'templates\GeneratedScript.Template.ps1'
     if (-not (Test-Path -LiteralPath $path)) {
-        throw "Mock reference script not found: $path"
+        throw "Mock template not found: $path"
     }
     return Get-Content -LiteralPath $path -Raw
 }
@@ -924,24 +919,24 @@ function Invoke-AGTAMockAuthoring {
         [object] $Context
     )
 
-    $scriptText = Get-AGTAMockPaintScript
-    [void](Set-AGTAAuthoringStage -Context $Context -Stage 'planning' -Summary 'Mock provider mapped the Paint CSV to the reference script.' -Details @(
-        'Use the existing reference script shape.',
+    $scriptText = Get-AGTAMockScript
+    [void](Set-AGTAAuthoringStage -Context $Context -Stage 'planning' -Summary 'Mock provider maps CSV rows to incomplete template placeholders.' -Details @(
+        'Use the generic incomplete template.',
         'Preserve generated-script contract fields.'
     ))
     [void](Set-AGTAAuthoringStage -Context $Context -Stage 'exploration' -Summary 'Mock provider does not perform live UI exploration.' -Details @(
         'This dry-run path records the stage boundary without touching the desktop.'
     ))
-    [void](Set-AGTAAuthoringStage -Context $Context -Stage 'development_iteration' -Summary 'Mock provider writes the reference script and uses the reference script optimization pattern.')
+    [void](Set-AGTAAuthoringStage -Context $Context -Stage 'development_iteration' -Summary 'Mock provider writes a generic template; it does not implement GUI coverage.')
     $toolResult = Invoke-AGTAAgentTool -Name 'write_generated_script' -Arguments ([pscustomobject]@{
-        relativePath = 'MicrosoftPaint.Generated.ps1'
+        relativePath = 'Test.Generated.ps1'
         content = $scriptText
     }) -Context $Context
 
     $execution = $null
     if ($Context.Execute) {
         $execution = Invoke-AGTAAgentTool -Name 'run_generated_script' -Arguments ([pscustomobject]@{
-            relativePath = 'MicrosoftPaint.Generated.ps1'
+            relativePath = 'Test.Generated.ps1'
         }) -Context $Context
     }
 
@@ -950,7 +945,7 @@ function Invoke-AGTAMockAuthoring {
         scriptPath = $toolResult.path
         execution = $execution
         run = $Context.Run
-        summary = 'Mock provider wrote the Paint reference script.'
+        summary = 'Mock provider wrote the generic template. Placeholder steps remain SKIPPED.'
     }
 }
 
@@ -973,9 +968,12 @@ function Invoke-AGTAAgentAuthoring {
 
         [string] $SystemPrompt,
 
-        [string] $UserPrompt
+        [string] $UserPrompt,
+        [ValidateSet('VisibleControls','AllowShortcuts')] [string] $InteractionPolicy = 'VisibleControls',
+        [string] $PolicyReason
     )
 
+    if ($InteractionPolicy -eq 'AllowShortcuts' -and [string]::IsNullOrWhiteSpace($PolicyReason)) { throw 'AllowShortcuts requires PolicyReason identifying user/testcase authorization.' }
     $steps = @(Read-AGTATestCaseCsv -Path $TestCaseCsv)
     $run = New-AGTARunDirectory -TestCaseCsv $TestCaseCsv
     $context = [pscustomobject][ordered]@{
@@ -983,6 +981,8 @@ function Invoke-AGTAAgentAuthoring {
         Steps = $steps
         Run = $run
         PotatoCliPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PotatoCliPath)
+        InteractionPolicy = $InteractionPolicy
+        PolicyReason = $PolicyReason
         Execute = [bool]$Execute
         CurrentStage = ''
         StageHistory = (New-Object System.Collections.ArrayList)

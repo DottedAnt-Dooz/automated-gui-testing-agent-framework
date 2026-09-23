@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string] $TestCaseCsv,
@@ -20,7 +20,9 @@ param(
 
     [string] $UserPrompt = '',
 
-    [string] $UserPromptPath = ''
+    [string] $UserPromptPath = '',
+    [ValidateSet('VisibleControls','AllowShortcuts')] [string] $InteractionPolicy = 'VisibleControls',
+    [string] $PolicyReason
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,6 +51,8 @@ try {
         PotatoCliPath = $PotatoCliPath
         Execute = $Execute
         MaxIterations = $MaxIterations
+        InteractionPolicy = $InteractionPolicy
+        PolicyReason = $PolicyReason
     }
     if ($SystemPrompt) { $arguments.SystemPrompt = $SystemPrompt }
     if ($UserPrompt) { $arguments.UserPrompt = $UserPrompt }

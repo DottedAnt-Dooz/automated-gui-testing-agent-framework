@@ -1,0 +1,44 @@
+# Authoring entry point
+
+Read this page, the CSV, and `templates/GeneratedScript.Template.ps1`. Use CLI `help -Topic <command>` for a specific command. Do not read whole implementation modules or application examples without an unresolved defect.
+
+## Interaction policy
+
+The default is **VisibleControls**, in exploration, generated execution, and cleanup. Use visible menus, buttons, and writable text fields. No hotkeys (including Enter to submit a dialog), Ctrl+A clearing, clipboard, object models, file-association opening, or direct creation of expected output. `type` sends literal text; it checks focus, application ownership, and writability. Newlines/tabs are allowed only in Document controls. `-PreDelete` selects text through UIA and presses Backspace; unsupported selection must fail rather than silently use Ctrl+A.
+
+Only an explicit user/testcase allowance may select `AllowShortcuts`. Set `-InteractionPolicy AllowShortcuts -PolicyReason '<authorization>'` at runtime initialization/authoring launch. Every shortcut command then requires `-FallbackReason '<observed limitation>' -FallbackEvidence '<screenshot or observation reference>'`. Neither convenience nor a failed selector authorizes changing policy. Clipboard remains unsupported. Never use a per-command policy override in a generated script.
+
+CLI calls from a shell use VisibleControls by default. For an authorized relaxed run, pass `-InteractionPolicy AllowShortcuts` on exploration commands too. Record the same policy in the generated script. Compare elapsed time only between runs with identical interaction constraints and assertions.
+
+## Minimal workflow
+
+1. Map each row to its GUI route, expected assertion, dependencies, and unknowns. Create input/generated/evidence/logs/results folders.
+2. Explore only unknown transitions. Query a bounded set by label before guessing its ControlType. Reuse observations while the UI state is unchanged; prefer a targeted read/wait over another whole tree. Record selectors, expected state, and the evidence reference in `logs/discoveries.md`.
+3. Generate from the template using the shared runtime. Parse the script and validate paths/CSV before running it. Execute once, fix concrete failures, then rerun after behavior changes. Do not rerun only to polish reporting.
+
+Desktop calls remain sequential. The CLI serializes overlapping commands with a bounded desktop mutex; this is not permission to run concurrent workflows. `outcome:unknown` means inspect the postcondition before retrying. Provider calls can outlast selector timeouts; no automatic retry of submissions or typing.
+
+## Runtime helpers
+
+```powershell
+$Context = Initialize-AGTAGeneratedTest -PotatoCliPath $PotatoCliPath -TestCaseCsv $TestCaseCsv -RunRoot $RunRoot
+$results += Invoke-RecordedStep -StepIndex 1 -Body {
+    param([ref] $Commands, [ref] $Evidence)
+    # Invoke-StepCommand; Assert-PotatoOk checks dispatch, not the expected result.
+    # Assert-ExpectedResult compares actual UI state/content with the CSV expectation.
+}
+$cleanup = @(Invoke-TestCleanup) # place in finally
+Complete-AGTAGeneratedTest -StepResults $results -Cleanup $cleanup
+exit (Get-AGTATestExitCode)
+```
+
+- `Invoke-StepCommand -Commands $Commands -Command <name> -Arguments @(...)` records compact summaries and full execution-specific transcripts. The default InProcess transport avoids a new PowerShell process for every command; `-Transport Process` remains available for compatibility comparisons.
+- Start in a clean session. Runtime `start` requires a new application process. `Register-OpenedProcess -StartResult $started` captures its PID and start time; cleanup never closes by broad process name. Create a fresh document through its visible route, even if some document is already present.
+- Scope dialog input with `-PathJson`/`-SelectorJson` and `-ProcessId`. `-ModalOnly` restricts a selector to modal-window descendants. Do not choose a label as a filename field. Do not dismiss the main window as an optional prompt.
+- `Assert-ExpectedResult -Condition <bool> -Message <expectation>` records a required assertion. `Assert-PotatoFound` checks existence; it does not prove document content. Assertions default on; catching a failed assertion cannot turn the step into PASS.
+- For asynchronous outputs: use a unique execution path, `wait-file -MinBytes 1 -StableMs 500`, then `Assert-FileWait`. Use `Read-AGTAArtifactBytes -Path ... -Count ...` or `Assert-ArtifactPrefix -ExpectedBytes ...` for bounded reads with sharing/retries. A signature alone is not a content check. Reopen through the app and read the execution marker back when content persistence is required.
+- Verify selected output destinations through UIA value/selection state, not merely a button Name or an exploration screenshot of the default setting.
+- `Invoke-EvidenceScreenshot` records useful evidence; it is not itself an assertion. `Register-CreatedExternalPath` is for outputs created by this execution; never register pre-existing user files.
+- Final success requires all CSV rows exactly once, passing assertions, policy compliance, and successful cleanup. Missing output fails; no WARN+PASS. JSON and process exit status must agree.
+
+Result timing reports command wrapper/backend time, wait-command time, cleanup, and other elapsed time. Cleanup and wait timings overlap command totals; do not add them all together. Optimize repeated discovery and transport first; retain the required GUI routes and checks.
