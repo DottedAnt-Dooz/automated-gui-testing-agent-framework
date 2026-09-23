@@ -49,7 +49,7 @@ try {
     #     $started = Invoke-StepCommand -Commands $Commands -Command 'start' -Arguments @('-ProcessName', 'notepad.exe', '-WaitForWindowMs', '10000')
     #     Assert-PotatoOk -Result $started -Message 'Could not start the target app.'
     #     Assert-ExpectedResult -Condition ([bool]$started.data.windowFound) -Message 'The target application window must be visible.'
-    #     Register-OpenedProcess -StartResult $started
+    #     # Invoke-StepCommand auto-registers a newly owned process for scoped cleanup.
     #     Invoke-EvidenceScreenshot -Commands $Commands -Evidence $Evidence -FileName '01-opened.png' | Out-Null
     # }
 }

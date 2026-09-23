@@ -32,6 +32,12 @@ try {
     'Assert-ArtifactPrefix -Path x -ExpectBytes ([byte[]]@(1))' | Set-Content $wrong
     $preflight=Test-AGTAGeneratedScript -ScriptPath $wrong
     Check (-not $preflight.ok -and $preflight.issues[0] -match 'parameter') 'Wrong helper argument survived preflight.'
+    '[System.IO.File]::ReadAllBytes($Path)' | Set-Content $wrong
+    $preflight=Test-AGTAGeneratedScript -ScriptPath $wrong
+    Check (-not $preflight.ok -and @($preflight.issues | Where-Object { $_ -match 'ReadAllBytes' }).Count -eq 1) 'Unsafe bulk artifact read survived preflight.'
+    '[IO.File]::ReadAllBytes($Path)' | Set-Content $wrong
+    $preflight=Test-AGTAGeneratedScript -ScriptPath $wrong
+    Check (-not $preflight.ok -and @($preflight.issues | Where-Object { $_ -match 'ReadAllBytes' }).Count -eq 1) 'Short file-type alias survived bulk-read preflight.'
     Assert-FileWait -Result ([pscustomobject]@{ok=$true;data=@{path=$csv;conditionMet=$true}}) -Message 'Fixture file should exist.'
     $fileWaitFailed=$false
     try { Assert-FileWait -Result ([pscustomobject]@{ok=$true;data=@{path=$csv;conditionMet=$false}}) -Message 'Fixture wait failed.' } catch { $fileWaitFailed=$_.Exception.Message -eq 'Fixture wait failed.' }

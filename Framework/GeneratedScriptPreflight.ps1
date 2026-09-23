@@ -75,6 +75,12 @@ function Test-AGTAGeneratedScript {
             }
         }
     }
+    foreach ($memberCall in @($ast.FindAll({param($node) $node -is [Management.Automation.Language.InvokeMemberExpressionAst]}, $true))) {
+        if ($memberCall.Static -and $memberCall.Member.Extent.Text -eq 'ReadAllBytes' -and
+            $memberCall.Expression.Extent.Text -match '^\[(?:System\.)?IO\.File\]$') {
+            $issues += "Line $($memberCall.Extent.StartLineNumber): direct File.ReadAllBytes can fail on an output still held by its application. Use Read-AGTAArtifactBytes or Assert-ArtifactPrefix for bounded shared reads."
+        }
+    }
     return [pscustomobject]@{ok=($issues.Count -eq 0);issues=@($issues);checkedCommands=$checked}
 }
 

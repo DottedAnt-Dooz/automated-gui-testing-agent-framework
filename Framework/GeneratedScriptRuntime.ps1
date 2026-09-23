@@ -377,7 +377,7 @@ function Register-OpenedProcess {
     param([Parameter(Mandatory)] [object] $StartResult)
     Assert-PotatoOk $StartResult
     $ownedId = $StartResult.data.ownedProcessId
-    if (-not $ownedId) { throw 'Start did not establish an owned process. Refusing broad process-name cleanup.' }
+    if (-not $ownedId) { throw 'Start returned no ownedProcessId. Invoke-StepCommand registers valid ownership automatically; inspect the start result instead of bypassing scoped cleanup.' }
     $owned = Get-Process -Id $ownedId -ErrorAction Stop
     if (@($script:AGTAOpenedProcessNames | Where-Object { $_.Id -eq $owned.Id -and $_.StartTime -eq $owned.StartTime }).Count) { return }
     $script:AGTAOpenedProcessNames += [pscustomobject]@{Id=$owned.Id;StartTime=$owned.StartTime}

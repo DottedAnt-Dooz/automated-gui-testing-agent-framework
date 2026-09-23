@@ -171,7 +171,7 @@ Coordinate clicks and drags are allowed only when selector-based automation is n
 
 The template accepts `-InteractionPolicy`, `-PolicyReason`, and `-Transport`. InProcess is the default; Process preserves the previous transport. Policy is fixed at initialization. Result `interactionPolicy` records mode, reason, and compliance. `timing` records totalMs, wrapperMs, backendMs, commandOverheadMs, waitMs, cleanupMs, and otherMs; wait/cleanup overlap command timing. `Complete-AGTAGeneratedTest -PassThru` returns the result object without emitting JSON and never exits its caller. Entry points must emit the result and then call `exit (Get-AGTATestExitCode)`.
 
-Use `Read-AGTAArtifactBytes` / `Assert-ArtifactPrefix` for bounded shared reads after stable-file waits; content assertions still belong to the testcase. `start` rejects existing application processes in generated runs; register the returned ownership using `Register-OpenedProcess -StartResult`. Legacy process-name registration is intentionally rejected.
+Use `Read-AGTAArtifactBytes` / `Assert-ArtifactPrefix` for bounded shared reads after stable-file waits; content assertions still belong to the testcase. Direct static `File.ReadAllBytes` calls are rejected in generated-script preflight because they can conflict with the application's open file handle. Runtime `start` waits briefly for a closing prior instance, rejects one that remains, and automatically registers a newly owned process. Explicit `Register-OpenedProcess -StartResult` remains idempotent but is not needed after `Invoke-StepCommand start`; legacy process-name registration is rejected.
 
 ## Preflight and readback
 
