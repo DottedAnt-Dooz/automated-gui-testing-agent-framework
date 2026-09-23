@@ -434,7 +434,9 @@ function Test-AGTAGeneratedResult {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [object] $Result
+        [object] $Result,
+
+        [object[]] $ExpectedSteps = @()
     )
 
     $requiredTopLevel = @('ok', 'testCase', 'runRoot', 'startedAt', 'finishedAt', 'steps', 'summary', 'artifacts')
@@ -442,13 +444,31 @@ function Test-AGTAGeneratedResult {
         if ($Result.PSObject.Properties.Name -notcontains $field) { return $false }
     }
 
-    foreach ($step in @($Result.steps)) {
+    if ($Result.ok -isnot [bool]) { return $false }
+    $steps = @($Result.steps)
+    if ($steps.Count -eq 0) { return $false }
+    $seen = @{}
+    foreach ($step in $steps) {
         foreach ($field in @('stepIndex', 'action', 'expectedResult', 'status', 'evidence', 'commands', 'error')) {
             if ($step.PSObject.Properties.Name -notcontains $field) { return $false }
         }
         if ($step.status -notin @('PASS', 'FAIL', 'SKIPPED')) { return $false }
+        $index = 0
+        if (-not [int]::TryParse([string]$step.stepIndex, [ref]$index) -or $index -lt 1 -or $index -gt $steps.Count -or $seen.ContainsKey($index)) { return $false }
+        $seen[$index] = $true
     }
-
+    foreach ($pair in @(@{key='passed';status='PASS'}, @{key='failed';status='FAIL'}, @{key='skipped';status='SKIPPED'})) {
+        if ($null -eq $Result.summary.($pair.key) -or $Result.summary.($pair.key) -ne @($steps | Where-Object { $_.status -eq $pair.status }).Count) { return $false }
+    }
+    if ($Result.summary.total -ne $steps.Count) { return $false }
+    if ($ExpectedSteps.Count) {
+        if ($ExpectedSteps.Count -ne $steps.Count) { return $false }
+        foreach ($step in $steps) {
+            $expected = $ExpectedSteps[[int]$step.stepIndex - 1]
+            if ($step.action -cne $expected.action -or $step.expectedResult -cne $expected.expectedResult) { return $false }
+        }
+    }
+    if ($Result.ok -and (@($steps | Where-Object { $_.status -ne 'PASS' }).Count -gt 0 -or @($Result.cleanup | Where-Object { $null -ne $_ -and $_.ok -ne $true }).Count -gt 0)) { return $false }
     return $true
 }
 
@@ -459,14 +479,17 @@ function Get-AGTASystemPrompt {
     @'
 You generate repeatable PowerShell GUI test scripts from CSV testcases.
 Use only the provided tools for filesystem access, PoTATo CLI execution, and script validation.
+Use run_potato help -Topic <command> for arguments; help is available during planning. Keep desktop commands sequential. Explore unknown transitions once and record discoveries instead of repeatedly dumping UI trees.
+User/testcase prohibitions override fallback guidance. Never substitute shortcuts, clipboard, object models, process/file-association opening, or directly created output for a required GUI route. Report unavailable coverage as incomplete. Preserve failed-run evidence.
 You must split the work into exactly these stages and call set_authoring_stage before doing the work for each stage:
 1. planning: read the testcase, map rows to likely GUI actions, identify unknown selectors/dialogs, and decide what evidence is needed.
 2. exploration: use PoTATo commands to navigate the real UI and learn the actual windows, controls, selectors, timing, modal behavior, and verification points.
 3. development_iteration: write the generated script, run it when execution is enabled, inspect failures, fix concrete defects, and optimize for speed and robustness.
-Do not call run_potato until the exploration stage is active.
+Do not call run_potato except help until the exploration stage is active.
 Do not write or run the generated script until the development_iteration stage is active.
 The generated script must accept -PotatoCliPath, -TestCaseCsv, and -RunRoot. It should also accept optional -FrameworkRoot.
 The generated script must dot-source Framework\GeneratedScriptRuntime.ps1, call Initialize-AGTAGeneratedTest, and use the runtime helpers for PoTATo invocation, compact command summaries, evidence handling, cleanup, step results, and final JSON writing. Do not copy this universal helper layer into the generated script.
+Initialize new scripts with -RequireAssertions. Map each row to a meaningful Assert-ExpectedResult, Assert-PotatoFound, or Assert-FileWait check. Command success/screenshots alone do not establish application correctness. Use unique output paths and nonempty/stable file waits followed by required content checks. Observe before retrying an ambiguous action. Parse scripts and validate paths/CSV before GUI runs; compute defaults in the body.
 Each CSV row maps to one final step result with stepIndex, action, expectedResult, status, evidence, commands, and error.
 The final generated script must write exactly one JSON object to stdout and save it to results\result.json.
 Coordinate clicks are allowed only as documented fallbacks with screenshots.
@@ -654,9 +677,9 @@ function Invoke-AGTAAgentTool {
             return @{ steps = @($Context.Steps) }
         }
         'run_potato' {
-            Assert-AGTAAuthoringStage -Context $Context -AllowedStages @('exploration', 'development_iteration') -ToolName $Name
             $command = [string]$Arguments.command
-            $allowed = @('state','windows','start','focus','observe','select','click','click-coordinate','type','hotkey','drag','hover','wait-element','wait-file','read','screenshot','close-window','report')
+            if ($command -ne 'help') { Assert-AGTAAuthoringStage -Context $Context -AllowedStages @('exploration', 'development_iteration') -ToolName $Name }
+            $allowed = @('help','state','windows','start','focus','observe','select','click','click-coordinate','type','hotkey','drag','hover','wait-element','wait-file','read','screenshot','close-window','report')
             if ($command -notin $allowed) { throw "PoTATo command is not allowed: $command" }
             $args = @()
             if ($Arguments.arguments) { $args = @($Arguments.arguments | ForEach-Object { [string]$_ }) }
@@ -664,6 +687,9 @@ function Invoke-AGTAAgentTool {
         }
         'write_generated_script' {
             Assert-AGTAAuthoringStage -Context $Context -AllowedStages @('development_iteration') -ToolName $Name
+            $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseInput([string]$Arguments.content, [ref]$null, [ref]$parseErrors)
+            if ($parseErrors.Count -gt 0) { throw ('Generated script syntax errors: ' + (($parseErrors | ForEach-Object { $_.Message }) -join '; ')) }
             $path = Assert-AGTASafeRelativePath -Root $Context.Run.generated -RelativePath ([string]$Arguments.relativePath)
             $parent = Split-Path -Parent $path
             if (-not (Test-Path -LiteralPath $parent)) { New-Item -Path $parent -ItemType Directory -Force | Out-Null }
@@ -686,7 +712,7 @@ function Invoke-AGTAAgentTool {
             $generatedOk = $false
             try {
                 $generatedParsed = $proc.stdout.Trim() | ConvertFrom-Json
-                $generatedOk = [bool]$generatedParsed.ok
+                $generatedOk = ($proc.exitCode -eq 0 -and (Test-AGTAGeneratedResult -Result $generatedParsed -ExpectedSteps $Context.Steps) -and [bool]$generatedParsed.ok)
             }
             catch {}
             Write-AGTAMetric -RunRoot $Context.Run.runRoot -Metric ([ordered]@{

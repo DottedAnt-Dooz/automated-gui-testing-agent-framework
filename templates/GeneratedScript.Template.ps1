@@ -22,7 +22,7 @@ if (-not $runtimePath) {
 $FrameworkRoot = Split-Path -Parent (Split-Path -Parent $runtimePath)
 . $runtimePath
 
-$Context = Initialize-AGTAGeneratedTest -PotatoCliPath $PotatoCliPath -TestCaseCsv $TestCaseCsv -RunRoot $RunRoot
+$Context = Initialize-AGTAGeneratedTest -PotatoCliPath $PotatoCliPath -TestCaseCsv $TestCaseCsv -RunRoot $RunRoot -RequireAssertions
 $results = @()
 $cleanup = @()
 
@@ -42,6 +42,7 @@ try {
     #     param([ref] $Commands, [ref] $Evidence)
     #     $started = Invoke-StepCommand -Commands $Commands -Command 'start' -Arguments @('-ProcessName', 'notepad.exe', '-WaitForWindowMs', '10000')
     #     Assert-PotatoOk -Result $started -Message 'Could not start the target app.'
+    #     Assert-ExpectedResult -Condition ([bool]$started.data.windowFound) -Message 'The target application window must be visible.'
     #     Register-OpenedProcess -ProcessName 'notepad'
     #     Invoke-EvidenceScreenshot -Commands $Commands -Evidence $Evidence -FileName '01-opened.png' | Out-Null
     # }
@@ -50,4 +51,4 @@ finally {
     $cleanup = @(Invoke-TestCleanup)
 }
 
-Complete-AGTAGeneratedTest -StepResults $results -Cleanup $cleanup -AllowSkipped
+Complete-AGTAGeneratedTest -StepResults $results -Cleanup $cleanup

@@ -56,6 +56,10 @@ Generated scripts should keep final JSON small. Full PoTATo responses belong in 
 
 Generated scripts should dot-source `Framework\GeneratedScriptRuntime.ps1` instead of copying the shared helper layer. The runtime provides PoTATo invocation, command logging, step result creation, evidence registration, cleanup, and final JSON writing. Agents should keep generated scripts focused on testcase-specific GUI actions and assertions.
 
+Start authoring from `templates\GeneratedScript.Template.ps1` and CLI `help -Topic <command>`. New scripts enable `-RequireAssertions`: command success or screenshots alone cannot pass a functional step. Required interaction routes and user/testcase prohibitions take precedence over fallback preferences. Preserve failed attempts, use unique execution outputs, and run all desktop actions sequentially. See the generated-script contract for result and verification semantics.
+
+Run focused regression checks with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\Runtime.Regression.Tests.ps1`. They validate reporting/assertion behavior using fixtures without driving an application. A live application regression is still needed before adopting behavior changes in an evaluation VM.
+
 OpenAI API references:
 
 - [Responses API](https://developers.openai.com/api/reference/responses/overview/)

@@ -11,6 +11,8 @@ Read:
 
 Use `..\potato_cli\potato.ps1` for all GUI exploration and actions. Do not use old PoTATo testcases or legacy automation libraries.
 
+Begin with the generated-script template and CLI `help -Topic <command>`. Read implementation modules/application examples only for a specific unresolved question. Map each row to its required interaction route and expected-result assertion. User/testcase prohibitions override all fallback guidance below. Do not substitute shortcuts, clipboard, object models, process/file-association opening, or directly created output for required GUI actions. Keep desktop commands sequential and preserve failed-run evidence.
+
 Workflow:
 
 1. Planning: parse the CSV rows, create a run folder, and write down the likely GUI operations, unknown selectors/dialogs, required evidence, and expected validation checks.
@@ -20,6 +22,8 @@ Workflow:
 Generated scripts must dot-source `Framework\GeneratedScriptRuntime.ps1` and call `Initialize-AGTAGeneratedTest`. Use the shared runtime helpers for PoTATo invocation, compact command summaries, evidence, cleanup, step results, and final JSON writing. Do not copy those universal helper functions into each generated script; only write testcase-specific actions, selectors, assertions, and small app-specific helpers.
 
 Prefer selector-based GUI actions over hotkeys. Use `hotkey` only when the visible GUI route is unreliable, unavailable through UI Automation, or needed to recover from a known state.
+
+Initialize new scripts with `-RequireAssertions`. Assert expected state with `Assert-ExpectedResult`, `Assert-PotatoFound`, or `Assert-FileWait`; command success/screenshots alone cannot prove a step. Parse scripts and validate inputs before GUI execution. Use unique output paths and nonempty/stable file waits followed by content checks. Observe an ambiguous action's result before retrying it.
 
 Generated scripts must clean up after themselves at the end even when the testcase does not ask for cleanup. Close applications/windows opened by the script and delete fixed-path or external files/state that could affect a later run. Preserve screenshots, transcripts, result JSON, and intentional evidence under the run folder.
 

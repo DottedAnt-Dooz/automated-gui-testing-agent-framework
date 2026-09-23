@@ -24,7 +24,7 @@ Generated scripts must dot-source the shared runtime unless there is a concrete 
 ```powershell
 $runtimePath = Join-Path -Path $FrameworkRoot -ChildPath 'Framework\GeneratedScriptRuntime.ps1'
 . $runtimePath
-$Context = Initialize-AGTAGeneratedTest -PotatoCliPath $PotatoCliPath -TestCaseCsv $TestCaseCsv -RunRoot $RunRoot
+$Context = Initialize-AGTAGeneratedTest -PotatoCliPath $PotatoCliPath -TestCaseCsv $TestCaseCsv -RunRoot $RunRoot -RequireAssertions
 ```
 
 Do not copy universal boilerplate into each generated script. The framework runtime already provides:
@@ -33,6 +33,7 @@ Do not copy universal boilerplate into each generated script. The framework runt
 - `Invoke-StepCommand`
 - `Invoke-RecordedStep`
 - `Assert-PotatoOk`, `Assert-PotatoFound`, and `Assert-FileWait`
+- `Assert-ExpectedResult -Condition <bool> -Message <expected postcondition>`
 - `Invoke-EvidenceScreenshot` and `Add-EvidencePath`
 - `Register-OpenedProcess` and `Register-CreatedExternalPath`
 - `Invoke-TestCleanup`
@@ -77,6 +78,14 @@ Generated scripts should be optimized after they are functionally correct. Use s
 
 Optimization must not remove required evidence or make failures harder to diagnose.
 
+User/testcase interaction constraints override every fallback preference. A forbidden shortcut/clipboard operation is still forbidden inside a helper. Do not replace a required GUI route with process arguments, file association, an object model, or directly generated expected output. Record unavailable coverage as incomplete.
+
+Start with CLI `help -Topic <command>` and the template. Keep desktop commands sequential. Use targeted queries before repeating broad `observe` calls. `select` queries elements; it does not select a dropdown item. A missing popup item may require opening its parent first. Use `click -Method Mouse` when exploration shows UIA Invoke does not cause the expected transition; observe before retrying a possibly completed action.
+
+`type` accepts literal text and never uses the clipboard. `-Verify` reads UIA text without resending input. `-PreDelete` defaults to TextPattern selection plus Backspace; `-ClearMethod Shortcut` explicitly uses Ctrl+A and may only be used when permitted. Report an unsupported read/selection rather than silently substituting another route. `verified: null` means verification was not requested.
+
+Use unique execution paths and `wait-file -MinBytes 1 -StableMs 500` before inspecting asynchronous output. Assert `conditionMet`, then validate required format/content; stability alone is not correctness. Before a GUI run, parse the script and validate paths/CSV. Compute path defaults in the body and avoid PowerShell automatic variable names. Preserve failed attempts for analysis.
+
 For cleanup and recovery flows, avoid probing several nonexistent dialog buttons with long timeouts. First check whether a process/window or blocking dialog is actually present. If a prompt is possible but not expected, use short bounded checks and do not record expected misses as failures.
 
 ## Step Results
@@ -102,6 +111,10 @@ Allowed statuses:
 - `SKIPPED`
 
 ## Final JSON
+
+New scripts must initialize with `-RequireAssertions`. `Invoke-RecordedStep` then requires a recorded postcondition and adds `assertions` to each result. `Assert-PotatoFound` and `Assert-FileWait` record assertions; `Assert-PotatoOk` checks command execution and does not count. Use `Assert-ExpectedResult` to compare actual content with expected values. Screenshot capture alone is not an assertion. The author must still choose checks that prove the CSV requirement.
+
+The runtime attempts a failure screenshot before cleanup and preserves the original error if capture fails. Explicitly mark dependent rows `SKIPPED` after a failed prerequisite. Final `ok` requires each original row exactly once with its original action/expectation, all rows passing, recorded assertions when required, and successful cleanup. `-AllowSkipped` remains accepted for compatibility but no longer makes skipped work pass. Assertions are opt-in for older scripts; the supplied template enables them.
 
 The script must write exactly one JSON object to stdout:
 
