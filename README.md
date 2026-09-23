@@ -15,7 +15,7 @@ Use this when a coding agent such as Codex, Copilot, or Hermes is running in an 
 1. Point the agent at this folder.
 2. Provide a testcase CSV, for example `Microsoft Paint.csv`.
 3. Ask the agent to generate and validate a PowerShell GUI test script.
-4. The agent should follow `AGENTS.md` and `docs\GENERATED_SCRIPT_CONTRACT.md`.
+4. The agent should follow `AGENTS.md`, `docs\AUTHORING.md`, and the generated script template. Consult the full contract for unresolved schema questions.
 5. The agent must work in three stages: Planning, Exploration, and Development/Iteration.
 
 ### 2. API Workflow

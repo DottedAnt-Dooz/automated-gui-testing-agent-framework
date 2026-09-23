@@ -14,15 +14,28 @@ try {
     $ctx=Initialize-AGTAGeneratedTest -PotatoCliPath $cliPath -TestCaseCsv $csv -RunRoot $testRoot
     $helper=Get-AGTARuntimeHelp -Name Assert-ArtifactPrefix
     Check ($helper.available -and $helper.sourcePath -like '*ArtifactAssertions.ps1' -and $helper.syntax -match 'ExpectedBytes') 'Imported artifact helper was hidden from runtime help.'
+    $helpRaw=& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $frameworkRoot 'Get-RuntimeHelp.ps1') -Name Assert-FileWait
+    $helpValue=@($helpRaw | ConvertFrom-Json)[0]
+    Check ($LASTEXITCODE -eq 0 -and $helpValue.syntax -match 'Message') 'Runtime help entrypoint failed or truncated the signature.'
     $preflight=Test-AGTAGeneratedScript -ScriptPath (Join-Path $frameworkRoot 'templates\GeneratedScript.Template.ps1') -TestCaseCsv $csv -PotatoCliPath $cliPath
     Check $preflight.ok 'Template failed static helper/input preflight.'
+    $preflightRaw=& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $frameworkRoot 'Test-GeneratedScript.ps1') -ScriptPath (Join-Path $frameworkRoot 'templates\GeneratedScript.Template.ps1') -TestCaseCsv $csv -PotatoCliPath $cliPath
+    $preflightValue=$preflightRaw | ConvertFrom-Json
+    Check ($LASTEXITCODE -eq 0 -and $preflightValue.ok) 'Preflight entrypoint failed on the template.'
     $wrong=Join-Path $testRoot 'wrong-helper.ps1'
     'Assert-ArtifactPrefx -Path x -ExpectedBytes ([byte[]]@(1))' | Set-Content $wrong
     $preflight=Test-AGTAGeneratedScript -ScriptPath $wrong -TestCaseCsv $csv -PotatoCliPath $cliPath
     Check (-not $preflight.ok -and $preflight.issues[0] -match 'unavailable') 'Unknown helper survived preflight.'
+    $invalidRaw=& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $frameworkRoot 'Test-GeneratedScript.ps1') -ScriptPath $wrong
+    $invalidValue=$invalidRaw | ConvertFrom-Json
+    Check ($LASTEXITCODE -eq 1 -and -not $invalidValue.ok -and $invalidValue.issues[0] -match 'unavailable') 'Preflight entrypoint did not report an invalid script.'
     'Assert-ArtifactPrefix -Path x -ExpectBytes ([byte[]]@(1))' | Set-Content $wrong
     $preflight=Test-AGTAGeneratedScript -ScriptPath $wrong
     Check (-not $preflight.ok -and $preflight.issues[0] -match 'parameter') 'Wrong helper argument survived preflight.'
+    Assert-FileWait -Result ([pscustomobject]@{ok=$true;data=@{path=$csv;conditionMet=$true}}) -Message 'Fixture file should exist.'
+    $fileWaitFailed=$false
+    try { Assert-FileWait -Result ([pscustomobject]@{ok=$true;data=@{path=$csv;conditionMet=$false}}) -Message 'Fixture wait failed.' } catch { $fileWaitFailed=$_.Exception.Message -eq 'Fixture wait failed.' }
+    Check $fileWaitFailed 'File wait did not infer the path or honor a custom assertion message.'
     Check ($ctx.InteractionPolicy -eq 'VisibleControls' -and $ctx.RequireAssertions -and $ctx.Transport -eq 'InProcess') 'Defaults are inconsistent.'
     $help=Invoke-PotatoJson help @('-Topic','type')
     Check ($help.ok -and $ctx.Timing.commandCount -eq 1) 'In-process transport/timing failed.'
@@ -109,8 +122,12 @@ exit (Get-AGTATestExitCode)
     function Invoke-PotatoJson {
         param($Command,$Arguments)
         if ($Command -eq 'close-window') { $script:closeArgs=$Arguments }
+        if ($Command -eq 'click') { $script:clickArgs=$Arguments; return [pscustomobject]@{ok=$true;command='click';data=@{clicked=$true}} }
         [pscustomobject]@{ok=$true;data=@{count=$script:remaining;elements=@()}}
     }
+    $clickCommands=@()
+    $clickResult=Invoke-StepClick -Commands ([ref]$clickCommands) -Arguments @('-Name','Fixture')
+    Check ($clickResult.data.clicked -and $script:clickArgs[-2] -eq '-Method' -and $script:clickArgs[-1] -eq 'Auto' -and $clickCommands.Count -eq 1) 'Step click did not default to Auto and record the action.'
     $cleanup=@(Invoke-TestCleanup -CloseTimeoutMs 0 -PromptTimeoutMs 0)
     Check (@($cleanup | Where-Object { $_.ok -eq $false }).Count -eq 1) 'Remaining owned window was silently accepted.'
     Check ($script:closeArgs[0] -eq '-ProcessId' -and $script:closeArgs[1] -eq "$PID") 'Cleanup used broad process-name targeting.'

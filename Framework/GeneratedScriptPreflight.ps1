@@ -2,7 +2,7 @@ function Get-AGTARuntimeHelp {
     [CmdletBinding()]
     param([string] $Name)
     $published = @(
-        'Initialize-AGTAGeneratedTest', 'Invoke-RecordedStep', 'Invoke-StepCommand',
+        'Initialize-AGTAGeneratedTest', 'Invoke-RecordedStep', 'Invoke-StepCommand', 'Invoke-StepClick',
         'Assert-PotatoOk', 'Assert-PotatoFound', 'Assert-FileWait',
         'Assert-ExpectedResult', 'Read-AGTAArtifactBytes', 'Assert-ArtifactPrefix',
         'Invoke-EvidenceScreenshot', 'Add-EvidencePath', 'Register-OpenedProcess',

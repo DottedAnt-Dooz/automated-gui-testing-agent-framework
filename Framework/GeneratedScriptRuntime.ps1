@@ -220,6 +220,22 @@ function Invoke-StepCommand {
     return $result
 }
 
+function Invoke-StepClick {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [ref] $Commands,
+        [Parameter(Mandatory)] [string[]] $Arguments,
+        [ValidateSet('Auto','Mouse','Invoke')] [string] $Method = 'Auto',
+        [string] $Message = 'Visible click failed.'
+    )
+
+    if ($Arguments -contains '-Method') { throw 'Pass -Method to Invoke-StepClick, not inside -Arguments.' }
+    $result = Invoke-StepCommand -Commands $Commands -Command 'click' -Arguments (@($Arguments) + @('-Method', $Method))
+    Assert-PotatoOk -Result $result -Message $Message
+    Assert-ExpectedResult -Condition ([bool]$result.data.clicked) -Message $Message
+    return $result
+}
+
 function Assert-PotatoOk {
     [CmdletBinding()]
     param(
@@ -269,15 +285,18 @@ function Assert-FileWait {
         [Parameter(Mandatory)]
         [object] $Result,
 
-        [Parameter(Mandatory)]
-        [string] $Path
+        [string] $Path,
+
+        [string] $Message
     )
 
-    Assert-PotatoOk -Result $Result -Message "Waiting for file failed: $Path"
+    $targetPath = if ($Path) { $Path } elseif ($Result.data.path) { [string]$Result.data.path } else { '<unknown path>' }
+    $failureMessage = if ($Message) { $Message } else { "File condition must be met: $targetPath" }
+    Assert-PotatoOk -Result $Result -Message $failureMessage
     $conditionMet = $false
     if ($null -ne $Result.data.conditionMet) { $conditionMet = [bool]$Result.data.conditionMet }
     elseif ($null -ne $Result.data.exists) { $conditionMet = [bool]$Result.data.exists }
-    Assert-ExpectedResult -Condition $conditionMet -Message "File condition must be met: $Path"
+    Assert-ExpectedResult -Condition $conditionMet -Message $failureMessage
 }
 
 function Assert-ExpectedResult {
