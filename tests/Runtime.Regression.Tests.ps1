@@ -12,6 +12,17 @@ try {
     $csv=Join-Path $testRoot 'case.csv'
     'Action,Data,Expected Result', 'Check fixture,,Fixture verified' | Set-Content $csv
     $ctx=Initialize-AGTAGeneratedTest -PotatoCliPath $cliPath -TestCaseCsv $csv -RunRoot $testRoot
+    $helper=Get-AGTARuntimeHelp -Name Assert-ArtifactPrefix
+    Check ($helper.available -and $helper.sourcePath -like '*ArtifactAssertions.ps1' -and $helper.syntax -match 'ExpectedBytes') 'Imported artifact helper was hidden from runtime help.'
+    $preflight=Test-AGTAGeneratedScript -ScriptPath (Join-Path $frameworkRoot 'templates\GeneratedScript.Template.ps1') -TestCaseCsv $csv -PotatoCliPath $cliPath
+    Check $preflight.ok 'Template failed static helper/input preflight.'
+    $wrong=Join-Path $testRoot 'wrong-helper.ps1'
+    'Assert-ArtifactPrefx -Path x -ExpectedBytes ([byte[]]@(1))' | Set-Content $wrong
+    $preflight=Test-AGTAGeneratedScript -ScriptPath $wrong -TestCaseCsv $csv -PotatoCliPath $cliPath
+    Check (-not $preflight.ok -and $preflight.issues[0] -match 'unavailable') 'Unknown helper survived preflight.'
+    'Assert-ArtifactPrefix -Path x -ExpectBytes ([byte[]]@(1))' | Set-Content $wrong
+    $preflight=Test-AGTAGeneratedScript -ScriptPath $wrong
+    Check (-not $preflight.ok -and $preflight.issues[0] -match 'parameter') 'Wrong helper argument survived preflight.'
     Check ($ctx.InteractionPolicy -eq 'VisibleControls' -and $ctx.RequireAssertions -and $ctx.Transport -eq 'InProcess') 'Defaults are inconsistent.'
     $help=Invoke-PotatoJson help @('-Topic','type')
     Check ($help.ok -and $ctx.Timing.commandCount -eq 1) 'In-process transport/timing failed.'

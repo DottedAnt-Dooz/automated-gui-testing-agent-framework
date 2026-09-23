@@ -1,5 +1,7 @@
 # Automated GUI Testing Agent Framework
 
+For CSV authoring, start with `docs/AUTHORING.md` and the generated template. The contract and source modules are references for specific unresolved questions.
+
 PowerShell-only framework for turning CSV testcase descriptions into repeatable GUI automation scripts that use `potato_cli`.
 
 [Watch the PoTATo demo recording](https://github.com/DottedAnt-Dooz/automated-gui-testing-agent-framework/releases/download/demo-v1/demo.mkv)

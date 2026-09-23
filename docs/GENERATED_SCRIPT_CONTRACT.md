@@ -172,3 +172,9 @@ Coordinate clicks and drags are allowed only when selector-based automation is n
 The template accepts `-InteractionPolicy`, `-PolicyReason`, and `-Transport`. InProcess is the default; Process preserves the previous transport. Policy is fixed at initialization. Result `interactionPolicy` records mode, reason, and compliance. `timing` records totalMs, wrapperMs, backendMs, commandOverheadMs, waitMs, cleanupMs, and otherMs; wait/cleanup overlap command timing. `Complete-AGTAGeneratedTest -PassThru` returns the result object without emitting JSON and never exits its caller. Entry points must emit the result and then call `exit (Get-AGTATestExitCode)`.
 
 Use `Read-AGTAArtifactBytes` / `Assert-ArtifactPrefix` for bounded shared reads after stable-file waits; content assertions still belong to the testcase. `start` rejects existing application processes in generated runs; register the returned ownership using `Register-OpenedProcess -StartResult`. Legacy process-name registration is intentionally rejected.
+
+## Preflight and readback
+
+`GeneratedScriptRuntime.ps1` dot-sources `ArtifactAssertions.ps1` and `GeneratedScriptPreflight.ps1`. Call `Get-AGTARuntimeHelp -Name <helper>` to inspect loaded helpers instead of searching a single source file. The template calls `Assert-AGTAGeneratedScriptPreflight` before initialization; it checks parsing, called command names/parameters, and supplied CLI/CSV paths without driving the desktop. The API authoring tools also apply this check when writing and running a generated script.
+
+`type -Verify` polls until `-VerifyTimeoutMs` (default 3000 ms) or a supplied positive `-MaxAttempts` limit. It never retypes. `-VerifyMode Exact|Contains|NormalizedExact|NormalizedContains` controls comparison; normalized modes reconcile line endings. `-TimeoutMs` is the selector lookup deadline. On failure the CLI reports attempt count and observed length without embedding field contents.

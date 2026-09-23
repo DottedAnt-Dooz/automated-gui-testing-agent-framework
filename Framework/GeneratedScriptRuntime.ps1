@@ -1,4 +1,5 @@
 ﻿. (Join-Path $PSScriptRoot 'ArtifactAssertions.ps1')
+. (Join-Path $PSScriptRoot 'GeneratedScriptPreflight.ps1')
 function Initialize-AGTAGeneratedTest {
     [CmdletBinding()]
     param(
@@ -452,13 +453,13 @@ function Invoke-TestCleanup {
             if (-not $live -or $live.StartTime -ne $owned.StartTime) { continue }
             $closed = Invoke-PotatoJson 'close-window' @('-ProcessId', "$($owned.Id)", '-TimeoutMs', '0')
             Assert-PotatoOk $closed
-            # One bounded scoped probe, not one long timeout for every possible label.
-            $modal = Invoke-PotatoJson 'select' @('-ProcessId', "$($owned.Id)", '-ControlType','Window','-TimeoutMs',"$PromptTimeoutMs")
-            foreach ($item in @($modal.data.elements)) {
-                if ($item.nativeWindowHandle) {
-                    $discard = Invoke-OptionalCleanupClick -Names $DiscardPromptNames -ControlType $DiscardPromptControlType -TimeoutMs 0 -ProcessId $owned.Id
-                    if ($discard) { $records += $discard; break }
-                }
+            # Read top-level windows from the desktop, not descendants of the
+            # previously focused document (dialogs are often sibling windows).
+            $afterClose = Invoke-PotatoJson 'windows' @('-ProcessId', "$($owned.Id)", '-TimeoutMs', '0')
+            Assert-PotatoOk $afterClose
+            if (@($afterClose.data.windows | Where-Object { $_.isModal }).Count) {
+                $discard = Invoke-OptionalCleanupClick -Names $DiscardPromptNames -ControlType $DiscardPromptControlType -TimeoutMs 0 -ProcessId $owned.Id
+                if ($discard) { $records += $discard }
             }
             $until = [Diagnostics.Stopwatch]::StartNew()
             do {

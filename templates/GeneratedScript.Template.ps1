@@ -25,6 +25,9 @@ if (-not $runtimePath) {
 $FrameworkRoot = Split-Path -Parent (Split-Path -Parent $runtimePath)
 . $runtimePath
 
+# Resolve generated helper calls and inputs before any desktop action.
+Assert-AGTAGeneratedScriptPreflight -ScriptPath $PSCommandPath -TestCaseCsv $TestCaseCsv -PotatoCliPath $PotatoCliPath | Out-Null
+
 $Context = Initialize-AGTAGeneratedTest -PotatoCliPath $PotatoCliPath -TestCaseCsv $TestCaseCsv -RunRoot $RunRoot -RequireAssertions -InteractionPolicy $InteractionPolicy -PolicyReason $PolicyReason -Transport $Transport
 $results = @()
 $cleanup = @()

@@ -493,6 +493,12 @@ function Get-AGTASystemPrompt {
 
 }
 
+function Assert-AGTAAuthoredScriptPreflight {
+    param([string] $ScriptPath, [object] $Context)
+    . (Join-Path $script:FrameworkRoot 'Framework\GeneratedScriptRuntime.ps1')
+    Assert-AGTAGeneratedScriptPreflight -ScriptPath $ScriptPath -TestCaseCsv $Context.TestCaseCsv -PotatoCliPath $Context.PotatoCliPath | Out-Null
+}
+
 function Get-AGTAUserPrompt {
     [CmdletBinding()]
     param(
@@ -685,6 +691,7 @@ function Invoke-AGTAAgentTool {
             $parent = Split-Path -Parent $path
             if (-not (Test-Path -LiteralPath $parent)) { New-Item -Path $parent -ItemType Directory -Force | Out-Null }
             Set-Content -LiteralPath $path -Value ([string]$Arguments.content) -Encoding UTF8
+            Assert-AGTAAuthoredScriptPreflight -ScriptPath $path -Context $Context
             return @{ path = $path; length = ([string]$Arguments.content).Length }
         }
         'run_generated_script' {
@@ -692,6 +699,7 @@ function Invoke-AGTAAgentTool {
             if (-not $Context.Execute) { return @{ skipped = $true; reason = 'Execution disabled.' } }
             $path = Assert-AGTASafeRelativePath -Root $Context.Run.generated -RelativePath ([string]$Arguments.relativePath)
             if (-not (Test-Path -LiteralPath $path)) { throw "Generated script not found: $path" }
+            Assert-AGTAAuthoredScriptPreflight -ScriptPath $path -Context $Context
             $proc = Invoke-AGTAProcess -FilePath 'powershell.exe' -Arguments @(
                 '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $path,
                 '-PotatoCliPath', $Context.PotatoCliPath,
